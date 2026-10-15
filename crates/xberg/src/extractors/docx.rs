@@ -116,6 +116,11 @@ fn build_internal_document(
                 let paragraph = &doc.paragraphs[*idx];
 
                 let (text, annotations, math_formulas) = collect_run_annotations(&paragraph.runs);
+                for run in &paragraph.runs {
+                    if let Some((latex, false)) = &run.math_latex {
+                        builder.record_formula(latex, Some(current_page));
+                    }
+                }
 
                 if text.is_empty() && math_formulas.is_empty() {
                     if current_list_numbering_id.is_some() {
@@ -503,9 +508,9 @@ fn push_header_footer_content(
 /// Collect plain text, annotations, and math formulas from a slice of Runs.
 ///
 /// Returns `(plain_text, annotations, math_formulas)` where:
-/// - `plain_text` is the concatenated non-math run text
+/// - `plain_text` is the concatenated run text, with inline math as `$...$`
 /// - `annotations` are byte-offset-based formatting annotations for the plain text
-/// - `math_formulas` are LaTeX strings from math runs (to be emitted as Formula nodes)
+/// - `math_formulas` are LaTeX strings from display math runs (to be emitted as Formula nodes)
 fn collect_run_annotations(
     runs: &[crate::extraction::docx::parser::Run],
 ) -> (String, Vec<crate::types::TextAnnotation>, Vec<String>) {
@@ -516,9 +521,16 @@ fn collect_run_annotations(
     let mut math_formulas = Vec::new();
 
     for run in runs {
-        if let Some((ref latex, _is_display)) = run.math_latex {
+        if let Some((ref latex, is_display)) = run.math_latex {
             if !latex.is_empty() {
-                math_formulas.push(latex.clone());
+                // Only `m:oMathPara` is a block; inline `m:oMath` stays in the sentence.
+                if is_display {
+                    math_formulas.push(latex.clone());
+                } else {
+                    text.push('$');
+                    text.push_str(latex.trim());
+                    text.push('$');
+                }
             }
             continue;
         }
@@ -2230,6 +2242,44 @@ mod tests {
     <w:p><w:r><w:t>Body text.</w:t></w:r></w:p>
   </w:body>
 </w:document>"#;
+
+    #[tokio::test]
+    async fn inline_omath_stays_in_its_sentence() {
+        let document_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
+  <w:body>
+    <w:p>
+      <w:r><w:t xml:space="preserve">For a right triangle, </w:t></w:r>
+      <m:oMath><m:sSup><m:e><m:r><m:t>α</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:oMath>
+      <w:r><w:t xml:space="preserve"> holds.</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>"#;
+
+        use crate::types::internal::ElementKind;
+
+        let doc = extract_docx_internal_document(&build_test_docx(document_xml)).await;
+        let blocks: Vec<_> = doc
+            .elements
+            .iter()
+            .filter(|e| matches!(e.kind, ElementKind::Paragraph | ElementKind::Formula))
+            .map(|e| (e.kind, e.text.replace(' ', "")))
+            .collect();
+        assert_eq!(
+            blocks,
+            vec![(
+                ElementKind::Paragraph,
+                r"Forarighttriangle,$\alpha^{2}$holds.".to_string()
+            )],
+            "got: {blocks:?}"
+        );
+        assert_eq!(
+            doc.recorded_formulas.len(),
+            1,
+            "the inline equation is still a formula of the document"
+        );
+    }
 
     async fn extract_docx_internal_document(data: &[u8]) -> crate::types::internal::InternalDocument {
         DocxExtractor::new()
