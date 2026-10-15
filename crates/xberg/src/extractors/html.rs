@@ -320,6 +320,61 @@ static ALT_ATTR_RE: std::sync::LazyLock<regex::Regex> =
 pub(crate) static MATHML_COMMENT_RE: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"(?is)<!--\s*MathML:.*?-->\s*").unwrap());
 
+/// html-to-markdown flattens `<math>` to token text and escapes LaTeX, so equations are swapped in after conversion.
+#[cfg(feature = "office")]
+const MATH_PLACEHOLDER: &str = "XBERGMATHPLACEHOLDER";
+
+#[cfg(feature = "office")]
+static MATH_PLACEHOLDER_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(&format!("{MATH_PLACEHOLDER}(\\d+)X")).unwrap());
+
+/// Convert HTML to Markdown with MathML equations written as `$...$` (or `$$...$$` for `display="block"`).
+#[cfg(feature = "office")]
+pub(crate) fn convert_html_to_markdown_with_mathml(
+    html: &str,
+    options: Option<html_to_markdown_rs::ConversionOptions>,
+    output_format: OutputFormat,
+) -> Result<(String, Option<HtmlMetadata>)> {
+    if output_format != OutputFormat::Markdown || html.contains(MATH_PLACEHOLDER) {
+        return crate::extraction::html::convert_html_to_markdown_with_metadata(html, options, Some(output_format));
+    }
+    let mut budget = SecurityBudget::from_limits(&crate::extractors::security::SecurityLimits::default());
+    let mut equations: Vec<String> = Vec::new();
+    let masked = MATH_TAG_RE.replace_all(html, |caps: &regex::Captures| {
+        let element = &caps[0];
+        match crate::extraction::mathml::convert_mathml_str_to_latex(element, &mut budget) {
+            Ok(latex) if !latex.trim().is_empty() => {
+                let open_tag = &element[..element.find('>').unwrap_or(element.len())];
+                let display = MATH_DISPLAY_BLOCK_RE.is_match(open_tag);
+                let fence = if display { "$$" } else { "$" };
+                equations.push(format!("{fence}{}{fence}", latex.trim()));
+                // Keep adjacent display equations from running together as `$$a$$$$b$$`.
+                if display {
+                    format!("<div>{MATH_PLACEHOLDER}{}X</div>", equations.len() - 1)
+                } else {
+                    format!("{MATH_PLACEHOLDER}{}X", equations.len() - 1)
+                }
+            }
+            _ => element.to_string(),
+        }
+    });
+    let (markdown, metadata) =
+        crate::extraction::html::convert_html_to_markdown_with_metadata(&masked, options, Some(output_format))?;
+    let markdown = MATH_PLACEHOLDER_RE.replace_all(&markdown, |caps: &regex::Captures| {
+        caps[1]
+            .parse::<usize>()
+            .ok()
+            .and_then(|i| equations.get(i))
+            .cloned()
+            .unwrap_or_default()
+    });
+    Ok((markdown.into_owned(), metadata))
+}
+
+#[cfg(feature = "office")]
+static MATH_DISPLAY_BLOCK_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)\bdisplay\s*=\s*["']?block\b"#).unwrap());
+
 /// Recover MathML equations as LaTeX `Formula` elements (issue #129).
 ///
 /// `html-to-markdown-rs`'s `DocumentStructure` has no dedicated node kind for `<math>`
@@ -638,9 +693,16 @@ impl SyncExtractor for HtmlExtractor {
         let (content_text, html_metadata, _table_data, doc_structure) =
             crate::extraction::html::convert_html_to_markdown_with_tables(
                 &html,
-                html_options,
+                html_options.clone(),
                 Some(config.output_format.clone()),
             )?;
+        // Only the markdown takes the MathML pass; its placeholders would leak into the structure and tables.
+        #[cfg(feature = "office")]
+        let content_text = if config.output_format == OutputFormat::Markdown && MATH_TAG_RE.is_match(&html) {
+            convert_html_to_markdown_with_mathml(&html, html_options, OutputFormat::Markdown)?.0
+        } else {
+            content_text
+        };
 
         let mut budget = SecurityBudget::from_config(config);
 
@@ -1623,6 +1685,29 @@ mod tests {
             .map(|e| e.text.as_str())
             .collect();
         assert_eq!(latex, vec!["E = mc^2"]);
+    }
+
+    #[cfg(feature = "office")]
+    #[tokio::test]
+    async fn test_mathml_reaches_markdown_as_latex() {
+        use crate::core::config::ExtractionConfig;
+        let html = r#"<html><body><p>Set <math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>{</mo><mi>x</mi></mrow><annotation encoding="application/x-tex">\{x</annotation></semantics></math> here.</p>
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mtable><mtr><mtd><mn>1</mn></mtd><mtd><mn>2</mn></mtd></mtr><mtr><mtd><mn>3</mn></mtd><mtd><mn>4</mn></mtd></mtr></mtable></math><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>y</mi></math></body></html>"#;
+        let config = ExtractionConfig {
+            output_format: OutputFormat::Markdown,
+            ..Default::default()
+        };
+        let doc = HtmlExtractor::new()
+            .extract_content(html.as_bytes(), "text/html", &config)
+            .await
+            .expect("extraction failed");
+
+        let markdown = doc.pre_rendered_content.expect("markdown is pre-rendered");
+        assert!(markdown.contains(r"Set $\{x$ here."), "got: {markdown}");
+        assert!(
+            markdown.contains(concat!(r"$$\begin{matrix}1 & 2 \\ 3 & 4\end{matrix}$$", "\n\n$$y$$")),
+            "got: {markdown}"
+        );
     }
 
     /// A rendered-equation image carries its source in `alt`, and the entities
