@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(docx, pptx): an equation character written as a character reference is converted.** OMML attribute values
+  were read without unescaping, so `m:chr m:val="&#x23DF;"` kept the reference text and printed it in place of the
+  brace. Character and entity references in these values now resolve to their characters.
+- **(docx, pptx): an underbrace or overbrace in an equation is no longer dropped.** `m:groupChr` was skipped, so
+  the brace and the text inside it were missing from the output. A brace now renders as `\underbrace` or
+  `\overbrace` by its position, and any other character is set under or over its body.
+- **(docx, pptx): an n-th root in an equation keeps its degree.** A radical without `m:degHide` was read as a
+  square root, so a cube root came out as `\sqrt{x}`. The degree is now dropped only when `m:degHide` is on; `off`
+  and `false` read as off.
 - **(pdf): Markdown output honors header, footer, and watermark opt-ins for tagged pagination artifacts.**
   Tagged page numbers follow either the header or footer opt-in. (#2120)
 - **(pdf): table numbers split across touching text runs retain their thousands separators without inserted spaces.**
