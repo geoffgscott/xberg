@@ -151,6 +151,28 @@ async fn test_mixed_chapter_converts_math_alongside_prose() {
 }
 
 #[tokio::test]
+async fn markdown_writes_mathml_as_delimited_latex() {
+    let chapter_xhtml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <body>
+    <p>Square it:</p>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msup><mi>x</mi><mn>2</mn></msup></math>
+    <p>so <math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mn>1</mn><mn>2</mn></mfrac></math> is half.</p>
+  </body>
+</html>"#;
+    let config = ExtractionConfig {
+        output_format: OutputFormat::Markdown,
+        ..Default::default()
+    };
+    let input = ExtractInput::from_bytes(build_epub_bytes(chapter_xhtml), "application/epub+zip", None);
+    let result = EpubExtractor.extract(input, &config).await.expect("extract chapter");
+    let markdown = result.formatted_content.as_deref().unwrap_or(&result.content);
+
+    assert!(markdown.contains("$$x^{2}$$"), "got: {markdown}");
+    assert!(markdown.contains(r"so $\frac{1}{2}$ is half."), "got: {markdown}");
+}
+
+#[tokio::test]
 async fn serialized_mathml_comment_is_removed_from_plain_and_markdown() {
     let chapter_xhtml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
