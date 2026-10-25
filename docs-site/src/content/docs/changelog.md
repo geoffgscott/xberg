@@ -67,6 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(odt): Keep an inline formula object in its sentence, and the formulas of headings.**
+  A formula frame anchored as a character was written as a formula block ahead of its paragraph. In a paragraph
+  with text of its own it is now written where it sits as `$...$`, with an `xberg.math` annotation, and listed in
+  `formulas`; a formula alone in its paragraph, or in a list item, footnote, comment or text box, is still a formula
+  block. A formula in a heading, which was lost, is now a formula block after the heading. Formula LaTeX is
+  trimmed, and a formula holding only whitespace adds nothing. Annotations of a paragraph with leading whitespace
+  now line up with its trimmed text.
 - **(docx): Keep display equations in heading and quote paragraphs.**
   An `m:oMathPara` in a heading or quote paragraph that also held text was dropped, a heading holding only an
   equation kept it as heading text that `formulas` did not list, and a quote holding only an equation came out

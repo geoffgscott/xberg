@@ -14,6 +14,7 @@ use crate::core::config::ExtractionConfig;
 use crate::extractors::security::ZipBombValidator;
 use crate::plugins::{InternalDocumentExtractor, Plugin};
 use crate::types::ExtractedImage;
+use crate::types::builder::trim_text_and_annotations;
 use crate::types::document_structure::{AnnotationKind, ContentLayer, TextAnnotation};
 use crate::types::internal::InternalDocument;
 use crate::types::internal_builder::InternalDocumentBuilder;
@@ -551,35 +552,6 @@ fn build_paragraph_content(
     }
 
     (text, annotations)
-}
-
-/// Trims leading/trailing whitespace from `text` and shifts `annotations`' byte
-/// offsets to match, dropping any annotation that fell entirely within the trimmed
-/// prefix. Byte offsets are computed against the untrimmed text in
-/// `build_paragraph_content`, so trimming without this adjustment would silently
-/// misalign every annotation.
-fn trim_text_and_annotations(text: &str, annotations: Vec<TextAnnotation>) -> (&str, Vec<TextAnnotation>) {
-    let trimmed = text.trim();
-    let trim_start = (text.len() - text.trim_start().len()) as u32;
-    let trimmed_len = trimmed.len() as u32;
-
-    let adjusted = annotations
-        .into_iter()
-        .filter_map(|mut annotation| {
-            if annotation.end <= trim_start {
-                return None;
-            }
-            annotation.start = annotation.start.saturating_sub(trim_start).min(trimmed_len);
-            annotation.end = annotation.end.saturating_sub(trim_start).min(trimmed_len);
-            if annotation.start >= annotation.end {
-                None
-            } else {
-                Some(annotation)
-            }
-        })
-        .collect();
-
-    (trimmed, adjusted)
 }
 
 /// Flattens a table cell's paragraphs to a single string for the cell grid, still

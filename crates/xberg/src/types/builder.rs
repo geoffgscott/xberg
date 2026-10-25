@@ -488,6 +488,35 @@ fn is_always_root(content: &NodeContent) -> bool {
     matches!(content, NodeContent::PageBreak)
 }
 
+/// Trims leading/trailing whitespace from `text` and shifts `annotations`' byte
+/// offsets to match, dropping any annotation that fell entirely within the trimmed
+/// prefix. Byte offsets are computed against the untrimmed text, so trimming
+/// without this adjustment would silently misalign every annotation.
+#[cfg(any(feature = "office", feature = "hwpx"))]
+pub(crate) fn trim_text_and_annotations(text: &str, annotations: Vec<TextAnnotation>) -> (&str, Vec<TextAnnotation>) {
+    let trimmed = text.trim();
+    let trim_start = (text.len() - text.trim_start().len()) as u32;
+    let trimmed_len = trimmed.len() as u32;
+
+    let adjusted = annotations
+        .into_iter()
+        .filter_map(|mut annotation| {
+            if annotation.end <= trim_start {
+                return None;
+            }
+            annotation.start = annotation.start.saturating_sub(trim_start).min(trimmed_len);
+            annotation.end = annotation.end.saturating_sub(trim_start).min(trimmed_len);
+            if annotation.start >= annotation.end {
+                None
+            } else {
+                Some(annotation)
+            }
+        })
+        .collect();
+
+    (trimmed, adjusted)
+}
+
 /// Create a bold annotation for the given byte range.
 pub(crate) fn bold(start: u32, end: u32) -> TextAnnotation {
     TextAnnotation {
