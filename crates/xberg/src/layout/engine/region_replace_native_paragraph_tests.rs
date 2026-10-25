@@ -1,5 +1,6 @@
-//! A table region's VLM answer must replace the native body paragraphs inside it, end to end on a
-//! native PDF: stub layout engine, local VLM stub, `extract_content`, markdown rendered from the result.
+//! A table region's VLM answer must replace the native body paragraphs inside it whose words it carries
+//! and keep the others, end to end on a native PDF: stub layout engine, local VLM stub, `extract_content`,
+//! markdown rendered from the result.
 //!
 //! Lives under `engine` because the stub model is installed in the private engine pool, which only
 //! this module can construct an engine for; the VLM endpoint is a local wiremock stub.
@@ -15,8 +16,6 @@ use crate::core::config::{
 };
 use crate::layout::{BBox, LayoutClass, LayoutDetection};
 use crate::plugins::InternalDocumentExtractor;
-
-const REGION_MARKDOWN: &str = "Stub transcription of the detected table region.";
 
 const PAGE_WIDTH: f32 = 612.0;
 const PAGE_HEIGHT: f32 = 792.0;
@@ -108,8 +107,13 @@ const PHRASES: [&str; 5] = [
     "Customer complaints fell",
     "new packing line",
 ];
-/// Indices into `PARAGRAPHS` the region covers whole.
-const COVERED: [usize; 2] = [1, 2];
+/// The covered paragraph the stub answer transcribes; the other one the region covers is not in it.
+const ANSWERED: usize = 1;
+
+/// The answered paragraph's words in capitals, so the answer is told apart from the native text.
+fn region_markdown() -> String {
+    PARAGRAPHS[ANSWERED].1.join(" ").to_uppercase()
+}
 
 /// Reports one table region, scaled to the page raster.
 struct TableRegionModel(Region);
@@ -270,7 +274,7 @@ fn config(server: &MockServer, region: Region, output_format: OutputFormat) -> E
 async fn stub_vlm() -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(stub_completion(REGION_MARKDOWN)))
+        .respond_with(ResponseTemplate::new(200).set_body_json(stub_completion(&region_markdown())))
         .mount(&server)
         .await;
     server
@@ -285,23 +289,23 @@ async fn extract_markdown(config: &ExtractionConfig) -> String {
     crate::rendering::render_markdown(&doc)
 }
 
-/// The answer once, the covered paragraphs gone, the heading and every other paragraph kept.
+/// The answer once, the answered paragraph gone, the heading and every other paragraph kept.
 fn assert_region_replaced(markdown: &str) {
     assert_eq!(
-        markdown.matches(REGION_MARKDOWN).count(),
+        markdown.matches(region_markdown().as_str()).count(),
         1,
         "the VLM answer must appear exactly once:\n{markdown}"
     );
     for (index, phrase) in PHRASES.iter().enumerate() {
-        if COVERED.contains(&index) {
+        if index == ANSWERED {
             assert!(
                 !markdown.contains(phrase),
-                "paragraph {index} lies inside the table region and must be replaced by the answer:\n{markdown}"
+                "paragraph {index} lies inside the table region and the answer carries it, so it must go:\n{markdown}"
             );
         } else {
             assert!(
                 markdown.contains(phrase),
-                "paragraph {index} lies outside the table region and must be kept:\n{markdown}"
+                "paragraph {index} lies outside the region or is not in the answer, so it must be kept:\n{markdown}"
             );
         }
     }
@@ -332,7 +336,7 @@ async fn table_region_over_blank_space_removes_no_text() {
         Some(1),
         "the blank region must still reach the VLM"
     );
-    assert_eq!(markdown.matches(REGION_MARKDOWN).count(), 1, "{markdown}");
+    assert_eq!(markdown.matches(region_markdown().as_str()).count(), 1, "{markdown}");
     for phrase in PHRASES.iter().chain([&HEADING]) {
         assert!(
             markdown.contains(phrase),

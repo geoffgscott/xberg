@@ -66,23 +66,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   With VLM regions on, the answer was spliced in beside the native table and text it transcribed, so the table printed
   twice. When the PDF is built as a structured document (Markdown, Djot, HTML, DocTags and the formats built from
   Markdown, or any format once hierarchy, `include_document_structure`, a content filter or inline-image OCR is on),
-  table elements and body paragraphs at least 60% inside the region are now removed first, with any group the removal
-  empties and any page break it leaves leading or doubled, and the answer takes the place and depth of the content it
-  replaced. A paragraph linked as a caption stays; other paragraphs inside the region, an unlinked caption included,
-  are replaced, because the region's image is what the VLM transcribed. A figure's description is still only added, a
-  failed or empty answer changes nothing, and the `tables` list keeps the native table. Known limits: otherwise Plain
-  and Json output take the flat path, whose paragraphs carry no position, so the paragraphs stay and the answer goes
-  after the page's last element (at the end of the document, after a page break, when the paragraphs carry no page);
-  the only element the flat path can replace is a table element it added for a detected table whose cells are not
-  already in the page text, which Json output adds and Plain output on native text never does. With
-  `include_bbox: false`, paragraph boxes are dropped before the replacement runs, so paragraphs stay; a table element
-  whose table has a box is still replaced, and otherwise the answer goes after the page's last element. When the
-  structured pass falls back to the page text (it lost over 30% of the native text, produced nothing, or failed), the
-  flat path's limits apply. In builds with OCR, a document with any rotated page drops its layout images before the
-  region pass, so no region reaches the VLM; otherwise the region and the text are compared as if in one page frame,
-  so on a rotated page, or one whose MediaBox does not start at the origin, a region can miss the text it covers.
-  There is no check on the answer itself, so a wrong but non-empty answer replaces the table text and the covered
-  paragraphs.
+  table elements at least 60% inside the region are now removed first, and so is each body paragraph there whose words
+  the answer carries in full, with any group the removal empties and any page break it leaves leading or doubled; the
+  answer takes the place and depth of the content it replaced. Other paragraphs stay, such as a note inside a table
+  region, whose answer is only the table, and so does a paragraph linked as a caption. A figure's description is still
+  only added, a failed or empty answer changes nothing, and the `tables` list keeps the native table. Known limits:
+  otherwise, output formats that take the flat path (Plain, Json and others not built from Markdown) have paragraphs
+  with no position, so they stay and the answer goes after the page's last element (at the end of the document, after
+  a page break, when the paragraphs carry no page); the flat path replaces only a table element it added for a
+  detected table whose cells are not already in the page text, which Json output adds and Plain output on native text
+  never does, and the boxed OCR paragraphs of a partly scanned document in flat output other than Plain. With `include_bbox: false`,
+  paragraph boxes are dropped before the replacement runs, so paragraphs stay; a table element whose table has a box
+  is still replaced, and otherwise the answer goes after the page's last element. When the structured pass falls back
+  to the page text (it lost over 30% of the native text, produced nothing, or failed), the flat path's limits apply.
+  In builds with OCR, a document with any rotated page drops its layout images before the region pass, so no region
+  reaches the VLM; otherwise the region and the text are compared as if in one page frame, so on a rotated page, or
+  one whose MediaBox does not start at the origin, a region can miss the text it covers. There is no check on the
+  answer itself, so a wrong but non-empty answer replaces the table text and any covered paragraph whose words it has.
 - **(html): Read a page that is not UTF-8 in the encoding its byte order mark or `<meta>` declares.**
   Every non-UTF-8 page was decoded as UTF-8, so a `<meta charset>` or `<meta http-equiv>` declaration was ignored
   and each non-ASCII character of a windows-1252, Latin-1 or Shift_JIS page became U+FFFD, with a lossy-decode

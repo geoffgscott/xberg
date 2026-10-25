@@ -637,17 +637,20 @@ const MIN_TABLE_TOKEN_REPRESENTATION: f64 = 0.90;
 /// duplicate is cheaper than dropping a real table.
 const MIN_TABLE_TOKENS_FOR_CONTAINMENT: usize = 8;
 
-/// Tokens the element stream already renders, as a consumable multiset.
-fn element_token_multiset(doc: &InternalDocument) -> ahash::AHashMap<String, usize> {
+/// Tokens of `texts`, as a consumable multiset.
+fn token_multiset<'a>(texts: impl IntoIterator<Item = &'a str>) -> ahash::AHashMap<String, usize> {
     let mut represented = ahash::AHashMap::<String, usize>::new();
-    for token in doc
-        .elements
-        .iter()
-        .flat_map(|element| normalized_pdf_tokens(&element.text))
-    {
-        *represented.entry(token).or_default() += 1;
+    for text in texts {
+        for token in normalized_pdf_tokens(text) {
+            *represented.entry(token).or_default() += 1;
+        }
     }
     represented
+}
+
+/// Tokens the element stream already renders, as a consumable multiset.
+fn element_token_multiset(doc: &InternalDocument) -> ahash::AHashMap<String, usize> {
+    token_multiset(doc.elements.iter().map(|element| element.text.as_str()))
 }
 
 /// Whether `table`'s cell text is already carried by the element stream.
