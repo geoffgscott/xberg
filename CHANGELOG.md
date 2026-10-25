@@ -65,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(docx): Keep display equations in heading and quote paragraphs.**
+  An `m:oMathPara` in a heading or quote paragraph that also held text was dropped, a heading holding only an
+  equation kept it as heading text that `formulas` did not list, and a quote holding only an equation came out
+  empty. The equation is now a formula block after its heading or inside its quote, and a bookmark on a paragraph
+  holding only display math resolves to the equation.
 - **(pdf): A table model that fails to load in the per-page table pass now warns too.**
   When the table model passed the availability check but could not be loaded for a page, that page's tables were
   dropped with no processing warning; they are now read from the page text and a `pdf_tables` processing warning says
