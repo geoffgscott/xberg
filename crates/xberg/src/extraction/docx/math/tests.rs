@@ -197,7 +197,28 @@ fn should_keep_structural_superscripts_and_accents_when_escaping_run_text() {
 #[test]
 fn test_run_unicode_pi() {
     let latex = omml_to_latex("<m:r><m:t>\u{03C0}</m:t></m:r>");
-    assert_eq!(latex, "\\pi ");
+    assert_eq!(latex, "\\pi");
+}
+
+#[test]
+fn should_trim_inline_and_display_latex() {
+    assert_eq!(omml_to_latex("<m:r><m:t>&#x3B1;</m:t></m:r>"), "\\alpha");
+    assert_eq!(omml_to_latex(r#"<m:r><m:t xml:space="preserve">  </m:t></m:r>"#), "");
+    let xml = "<m:oMathPara><m:oMath><m:r><m:t>&#x3B1;</m:t></m:r></m:oMath><m:oMath><m:r><m:t>&#x3B2;</m:t></m:r></m:oMath></m:oMathPara>";
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name().as_ref() == "m:oMathPara" => break,
+            Ok(Event::Eof) => panic!("unexpected EOF"),
+            _ => {}
+        }
+        buf.clear();
+    }
+    let mut budget = SecurityBudget::with_defaults();
+    let latex = collect_and_convert_omath_para(&mut reader, &mut budget).expect("conversion ok");
+    assert_eq!(latex, "\\alpha \\\\ \\beta");
 }
 
 #[test]

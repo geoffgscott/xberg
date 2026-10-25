@@ -70,14 +70,28 @@ fn combining_accent_to_latex(ch: char) -> Option<&'static str> {
     }
 }
 
+/// The byte offset of the control word (`\` and ASCII letters) that `latex` ends with, if any.
+fn trailing_control_word(latex: &str) -> Option<usize> {
+    let start = latex.rfind('\\')?;
+    let word = &latex[start + 1..];
+    (!word.is_empty() && word.chars().all(|c| c.is_ascii_alphabetic())).then_some(start)
+}
+
+/// Whether `next` needs a space after `latex`: a letter right after a trailing control word would
+/// read as one longer command (`\alpha` then `b` is `\alphab`). Any letter counts, since XeTeX and
+/// LuaTeX read non-ASCII letters into a control word too.
+pub(crate) fn needs_space_after_latex(latex: &str, next: &str) -> bool {
+    trailing_control_word(latex).is_some() && next.starts_with(char::is_alphabetic)
+}
+
 /// Wrap the trailing atom of `out` (one trailing LaTeX command, else one
 /// trailing char) in `cmd{...}`. No-op on empty output.
 fn wrap_trailing_atom(cmd: &str, out: &mut String) {
     let trimmed_len = out.trim_end().len();
     let trailing_ws = out.split_off(trimmed_len);
-    let atom_start = match out.rfind('\\') {
-        Some(i) if out[i + 1..].chars().all(|c| c.is_ascii_alphabetic()) && i + 1 < out.len() => i,
-        _ => match out.chars().last() {
+    let atom_start = match trailing_control_word(out) {
+        Some(i) => i,
+        None => match out.chars().last() {
             Some(last) => out.len() - last.len_utf8(),
             None => {
                 out.push_str(&trailing_ws);

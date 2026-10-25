@@ -106,13 +106,14 @@ pub(crate) fn collect_and_convert_omath_para(
     for child in &children {
         if let MathNode::Group { children: inner } = child {
             let rendered = render_nodes(inner);
+            let rendered = rendered.trim();
             if !rendered.is_empty() {
-                parts.push(rendered);
+                parts.push(rendered.to_string());
             }
         }
     }
     if parts.is_empty() {
-        Ok(render_nodes(&children))
+        Ok(render_nodes(&children).trim().to_string())
     } else {
         Ok(parts.join(" \\\\ "))
     }
@@ -125,7 +126,7 @@ pub(crate) fn collect_and_convert_omath(
     budget: &mut SecurityBudget,
 ) -> Result<String, SecurityError> {
     let children = collect_children(reader, "m:oMath", budget)?;
-    Ok(render_nodes(&children))
+    Ok(render_nodes(&children).trim().to_string())
 }
 
 mod collect;

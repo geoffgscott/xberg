@@ -4834,6 +4834,70 @@ mod tests {
             "error should mention the default limit ({default_limit}), got: {err_msg}"
         );
     }
+
+    #[tokio::test]
+    async fn should_trim_inline_and_display_equations() {
+        let (elements, result) = extract_math_docx(
+            r#"<w:p><w:r><w:t xml:space="preserve">Angle </w:t></w:r><m:oMath><m:r><m:t>&#x3B1;</m:t></m:r></m:oMath>
+            <w:r><w:t xml:space="preserve"> and </w:t></w:r><m:oMath><m:r><m:t xml:space="preserve"> </m:t></m:r></m:oMath>
+            <w:r><w:t>end</w:t></w:r></w:p>
+            <w:p><m:oMathPara><m:oMath><m:r><m:t>&#x3B2;</m:t></m:r></m:oMath><m:oMath><m:r><m:t>&#x3B3;</m:t></m:r></m:oMath></m:oMathPara></w:p>"#,
+        )
+        .await;
+        assert_eq!(
+            math_blocks(&elements),
+            [
+                ("paragraph", "Angle $\\alpha$ and end"),
+                ("formula", "\\beta \\\\ \\gamma")
+            ]
+        );
+        assert_eq!(formula_latex(&result), ["\\alpha", "\\beta \\\\ \\gamma"]);
+    }
+
+    fn docx_plain_text(body: &str) -> String {
+        let document_xml = format!(
+            r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body>{body}</w:body></w:document>"#
+        );
+        let limits = crate::extractors::security::SecurityLimits::default();
+        let mut budget = SecurityBudget::from_limits(&limits);
+        crate::extraction::docx::parser::parse_document(&build_test_docx(&document_xml), &mut budget, &limits)
+            .unwrap()
+            .to_plain_text()
+    }
+
+    #[test]
+    fn should_keep_trimmed_equations_apart_from_following_letters_in_plain_text() {
+        let alpha = "<m:oMath><m:r><m:t>&#x3B1;</m:t></m:r></m:oMath>";
+        let x = "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>";
+        let display = "<m:oMathPara><m:oMath><m:r><m:t>&#x3B1;</m:t></m:r></m:oMath></m:oMathPara>";
+        let text = |t: &str| format!(r#"<w:r><w:t xml:space="preserve">{t}</w:t></w:r>"#);
+        let paragraphs = [
+            format!("{alpha}{}", text("b")),
+            format!("{alpha}{}", text("2")),
+            format!("{alpha}{}", text(" c")),
+            format!("{alpha}{}", text(".")),
+            format!("{alpha}{x}"),
+            format!("{x}{}", text("d")),
+            format!("{display}{}", text("then")),
+        ];
+        let body: String = paragraphs.iter().map(|p| format!("<w:p>{p}</w:p>")).collect();
+        let plain = docx_plain_text(&body);
+        let lines: Vec<&str> = plain.lines().filter(|line| !line.is_empty()).collect();
+        assert_eq!(
+            lines,
+            [
+                "\\alpha b",
+                "\\alpha2",
+                "\\alpha c",
+                "\\alpha.",
+                "\\alpha x",
+                "xd",
+                "\\alpha then"
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn should_keep_issue_2123_inline_math_in_its_docx_sentence() {
         let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -4855,7 +4919,7 @@ mod tests {
             .filter(|element| element.kind == crate::types::internal::ElementKind::Paragraph)
             .collect();
         assert_eq!(paragraphs.len(), 1);
-        assert_eq!(paragraphs[0].text, "Équation $\\alpha $ holds.");
+        assert_eq!(paragraphs[0].text, "Équation $\\alpha$ holds.");
         let annotation = paragraphs[0]
             .annotations
             .iter()
@@ -4866,7 +4930,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             &paragraphs[0].text[annotation.start as usize..annotation.end as usize],
-            "$\\alpha $"
+            "$\\alpha$"
         );
         assert_eq!(annotation.start as usize, "Équation ".len());
         let result = crate::extraction::derive::derive_extraction_result(
@@ -4874,7 +4938,7 @@ mod tests {
             true,
             crate::core::config::OutputFormat::Markdown,
         );
-        assert_eq!(result.content.trim(), "Équation $\\alpha $ holds.");
+        assert_eq!(result.content.trim(), "Équation $\\alpha$ holds.");
         assert_eq!(result.formulas.len(), 1);
         assert_eq!(result.formulas[0].latex.trim(), "\\alpha");
         assert_issue_2123_public_math_payload(&result);
@@ -4885,12 +4949,12 @@ mod tests {
         assert_eq!(document.nodes.len(), 1);
         let node = &document.nodes[0];
         let text = node.content.text().expect("public paragraph text");
-        assert_eq!(text, "Équation $\\alpha $ holds.");
+        assert_eq!(text, "Équation $\\alpha$ holds.");
         assert_eq!(node.annotations.len(), 1);
         let annotation = &node.annotations[0];
         assert_eq!(annotation.start as usize, "Équation ".len());
-        assert_eq!(annotation.end as usize, "Équation $\\alpha $".len());
-        assert_eq!(&text[annotation.start as usize..annotation.end as usize], "$\\alpha $");
+        assert_eq!(annotation.end as usize, "Équation $\\alpha$".len());
+        assert_eq!(&text[annotation.start as usize..annotation.end as usize], "$\\alpha$");
         assert_eq!(
             annotation.kind,
             crate::types::AnnotationKind::Custom {
@@ -4902,7 +4966,7 @@ mod tests {
         assert_eq!(
             payload["document"]["nodes"][0]["annotations"],
             serde_json::json!([{
-                "start": "Équation ".len(), "end": "Équation $\\alpha $".len(),
+                "start": "Équation ".len(), "end": "Équation $\\alpha$".len(),
                 "kind": {"annotation_type":"custom", "name":"xberg.math", "value":"inline"},
             }])
         );

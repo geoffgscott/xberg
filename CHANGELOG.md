@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(docx): Trim equation LaTeX.**
+  An inline equation read `$\alpha $`, which Markdown does not take as math, and its entry in `formulas` kept the
+  space. The converter's result is now trimmed for every consumer, and an equation holding only whitespace adds nothing.
+  Plain-text output keeps a space between an equation ending in a command such as `\alpha` and a letter after it.
 - **(docx): Write equation limits and function names as the MathML converter does.**
   `lim` with its limit read `\mathrm{\underset{n\rightarrow \infty }{lim}}{f(x)}`. A limit under or over a
   limit-taking name or big operator now reads `\lim_{n\rightarrow \infty }`, function names use the shared table
