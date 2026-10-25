@@ -3346,11 +3346,46 @@ fn table_model_unavailable_warning(model_name: &str) -> crate::types::Processing
 }
 
 #[cfg(feature = "layout-detection")]
+fn table_model_load_failed_warning(model_name: &str) -> crate::types::ProcessingWarning {
+    crate::types::ProcessingWarning {
+        source: std::borrow::Cow::Borrowed("pdf_tables"),
+        message: std::borrow::Cow::Owned(format!(
+            "layout detection found table regions but the {model_name} table model could not be loaded for a \
+             page; its tables were read from the page text"
+        )),
+    }
+}
+
+/// The table model loaders; a parameter so tests can simulate a missing model without loading one.
+#[cfg(feature = "layout-detection")]
+#[derive(Clone, Copy)]
+struct TableModelLoaders {
+    available: fn(
+        crate::core::config::layout::TableModel,
+        Option<&crate::core::config::acceleration::AccelerationConfig>,
+        usize,
+    ) -> bool,
+    tatr: fn(Option<&crate::core::config::acceleration::AccelerationConfig>, usize) -> Option<crate::layout::TatrLease>,
+    slanet: fn(
+        &str,
+        Option<&crate::core::config::acceleration::AccelerationConfig>,
+        usize,
+    ) -> Option<crate::layout::SlanetLease>,
+}
+
+#[cfg(feature = "layout-detection")]
+const TABLE_MODEL_LOADERS: TableModelLoaders = TableModelLoaders {
+    available: is_table_model_available,
+    tatr: crate::layout::take_or_create_tatr,
+    slanet: crate::layout::take_or_create_slanet,
+};
+
+#[cfg(feature = "layout-detection")]
 pub(crate) fn extract_document_structure_from_segments(
     all_page_segments: Vec<Vec<SegmentData>>,
     config: SegmentStructureConfig<'_>,
 ) -> Result<crate::types::internal::InternalDocument> {
-    build_document_structure(all_page_segments, config, is_table_model_available)
+    build_document_structure(all_page_segments, config, TABLE_MODEL_LOADERS)
 }
 
 #[cfg(not(feature = "layout-detection"))]
@@ -3364,12 +3399,7 @@ pub(crate) fn extract_document_structure_from_segments(
 fn build_document_structure(
     mut all_page_segments: Vec<Vec<SegmentData>>,
     config: SegmentStructureConfig<'_>,
-    // A parameter so tests can simulate a missing model without loading one.
-    #[cfg(feature = "layout-detection")] table_model_available: fn(
-        crate::core::config::layout::TableModel,
-        Option<&crate::core::config::acceleration::AccelerationConfig>,
-        usize,
-    ) -> bool,
+    #[cfg(feature = "layout-detection")] loaders: TableModelLoaders,
 ) -> Result<crate::types::internal::InternalDocument> {
     let SegmentStructureConfig {
         k_clusters,
@@ -3537,7 +3567,7 @@ fn build_document_structure(
             };
 
             let has_table_model = if use_model_inference {
-                let available = table_model_available(table_model, acceleration, session_thread_budget);
+                let available = (loaders.available)(table_model, acceleration, session_thread_budget);
 
                 if !available && !table_pages.is_empty() {
                     table_model_warning = Some(table_model_unavailable_warning(model_name));
@@ -3545,6 +3575,17 @@ fn build_document_structure(
                 available
             } else {
                 false
+            };
+            let heuristic_tables = |tp: &TablePageData| {
+                super::regions::extract_tables_from_layout_hints(
+                    &tp.words,
+                    &hints_pages[tp.page_idx],
+                    tp.page_idx,
+                    tp.page_height,
+                    0.5,
+                    allow_single_column,
+                    false,
+                )
             };
 
             if has_table_model {
@@ -3554,11 +3595,12 @@ fn build_document_structure(
                         .iter()
                         .map(|tp| {
                             if let Some(variant) = slanet_variant {
-                                let Some(mut slanet) =
-                                    crate::layout::take_or_create_slanet(variant, acceleration, session_thread_budget)
+                                let Some(mut slanet) = (loaders.slanet)(variant, acceleration, session_thread_budget)
                                 else {
                                     tracing::warn!("SLANeXT model unavailable in worker thread");
-                                    return Vec::new();
+                                    table_model_warning
+                                        .get_or_insert_with(|| table_model_load_failed_warning(model_name));
+                                    return heuristic_tables(tp);
                                 };
 
                                 if let (Some(page_image), Some(page_result)) =
@@ -3601,22 +3643,13 @@ fn build_document_structure(
                                     }
                                 }
 
-                                let hints = &hints_pages[tp.page_idx];
-                                super::regions::extract_tables_from_layout_hints(
-                                    &tp.words,
-                                    hints,
-                                    tp.page_idx,
-                                    tp.page_height,
-                                    0.5,
-                                    allow_single_column,
-                                    false,
-                                )
+                                heuristic_tables(tp)
                             } else {
-                                let Some(mut tatr) =
-                                    crate::layout::take_or_create_tatr(acceleration, session_thread_budget)
-                                else {
+                                let Some(mut tatr) = (loaders.tatr)(acceleration, session_thread_budget) else {
                                     tracing::warn!("TATR model unavailable in worker thread");
-                                    return Vec::new();
+                                    table_model_warning
+                                        .get_or_insert_with(|| table_model_load_failed_warning(model_name));
+                                    return heuristic_tables(tp);
                                 };
 
                                 if let (Some(page_image), Some(page_result)) =
@@ -3640,16 +3673,7 @@ fn build_document_structure(
                                     }
                                 }
 
-                                let hints = &hints_pages[tp.page_idx];
-                                super::regions::extract_tables_from_layout_hints(
-                                    &tp.words,
-                                    hints,
-                                    tp.page_idx,
-                                    tp.page_height,
-                                    0.5,
-                                    allow_single_column,
-                                    false,
-                                )
+                                heuristic_tables(tp)
                             }
                         })
                         .collect();
@@ -3661,10 +3685,9 @@ fn build_document_structure(
                                 (images.get(tp.page_idx), results.get(tp.page_idx))
                             {
                                 let hints = &hints_pages[tp.page_idx];
-                                let Some(mut tatr) =
-                                    crate::layout::take_or_create_tatr(acceleration, session_thread_budget)
-                                else {
-                                    return Vec::new();
+                                let Some(mut tatr) = (loaders.tatr)(acceleration, session_thread_budget) else {
+                                    table_model_warning.get_or_insert_with(|| table_model_load_failed_warning("TATR"));
+                                    return heuristic_tables(tp);
                                 };
                                 let tatr_tables = super::regions::recognize_tables_for_native_page(
                                     page_image,
@@ -3681,15 +3704,7 @@ fn build_document_structure(
                                 if !tatr_tables.is_empty() {
                                     return tatr_tables;
                                 }
-                                super::regions::extract_tables_from_layout_hints(
-                                    &tp.words,
-                                    hints,
-                                    tp.page_idx,
-                                    tp.page_height,
-                                    0.5,
-                                    allow_single_column,
-                                    false,
-                                )
+                                heuristic_tables(tp)
                             } else {
                                 Vec::new()
                             }
@@ -3702,16 +3717,7 @@ fn build_document_structure(
                             tracing::debug!("native structure pipeline: cancelled during heuristic table extraction");
                             break;
                         }
-                        let hints = &hints_pages[tp.page_idx];
-                        layout_tables.extend(super::regions::extract_tables_from_layout_hints(
-                            &tp.words,
-                            hints,
-                            tp.page_idx,
-                            tp.page_height,
-                            0.5,
-                            allow_single_column,
-                            false,
-                        ));
+                        layout_tables.extend(heuristic_tables(tp));
                     }
                 }
             } else {
@@ -3720,16 +3726,7 @@ fn build_document_structure(
                         tracing::debug!("native structure pipeline: cancelled during heuristic table extraction");
                         break;
                     }
-                    let hints = &hints_pages[tp.page_idx];
-                    layout_tables.extend(super::regions::extract_tables_from_layout_hints(
-                        &tp.words,
-                        hints,
-                        tp.page_idx,
-                        tp.page_height,
-                        0.5,
-                        allow_single_column,
-                        false,
-                    ));
+                    layout_tables.extend(heuristic_tables(tp));
                 }
             }
         }

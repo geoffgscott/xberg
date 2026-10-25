@@ -43,9 +43,33 @@ fn table_hint_page(heading: &str, body: &str, rows: &[[&str; 3]]) -> Vec<Segment
 }
 
 #[cfg(feature = "layout-detection")]
+const NO_TABLE_MODELS: TableModelLoaders = TableModelLoaders {
+    available: |_, _, _| false,
+    tatr: |_, _| None,
+    slanet: |_, _, _| None,
+};
+
+/// The preflight finds the model, but every later load fails.
+#[cfg(feature = "layout-detection")]
+const LOADS_FAIL_AFTER_PREFLIGHT: TableModelLoaders = TableModelLoaders {
+    available: |_, _, _| true,
+    ..NO_TABLE_MODELS
+};
+
+#[cfg(feature = "layout-detection")]
 fn table_hint_document(
     table_model: crate::core::config::layout::TableModel,
     hint_class: LayoutHintClass,
+) -> crate::types::internal::InternalDocument {
+    table_hint_document_with(table_model, hint_class, NO_TABLE_MODELS, false)
+}
+
+#[cfg(feature = "layout-detection")]
+fn table_hint_document_with(
+    table_model: crate::core::config::layout::TableModel,
+    hint_class: LayoutHintClass,
+    loaders: TableModelLoaders,
+    with_layout_rasters: bool,
 ) -> crate::types::internal::InternalDocument {
     let pages = vec![
         table_hint_page(
@@ -80,6 +104,14 @@ fn table_hint_document(
         top: 300.0,
     };
     let layout_hints = vec![vec![table_hint.clone()], vec![table_hint]];
+    let layout_images = vec![image::RgbImage::new(612, 792); 2];
+    let layout_results = vec![
+        crate::pdf::structure::types::PageLayoutResult {
+            page_width_pts: 612.0,
+            page_height_pts: 792.0,
+        };
+        2
+    ];
 
     build_document_structure(
         pages,
@@ -99,14 +131,14 @@ fn table_hint_document(
             layout_hints: Some(&layout_hints),
             allow_single_column: true,
             cancel_token: None,
-            layout_images: None,
-            layout_results: None,
+            layout_images: with_layout_rasters.then_some(layout_images.as_slice()),
+            layout_results: with_layout_rasters.then_some(layout_results.as_slice()),
             table_model,
             table_overlap_preference: crate::core::config::layout::TableOverlapPreference::Content,
             acceleration: None,
             session_thread_budget: 0,
         },
-        |_, _, _| false,
+        loaders,
     )
     .expect("a missing table model must not fail the structure pass")
 }
@@ -143,19 +175,31 @@ fn unavailable_table_model_warns_and_keeps_document_structure() {
         !expected.tables.is_empty(),
         "the heuristic path must read the hinted grid as a table"
     );
-    let table_contents = |document: &crate::types::internal::InternalDocument| {
-        document
-            .tables
-            .iter()
-            .map(|table| (table.page_number, table.cells.clone(), table.markdown.clone()))
-            .collect::<Vec<_>>()
-    };
     assert_eq!(table_contents(&document), table_contents(&expected));
     assert_eq!(document.elements, expected.elements);
     assert!(matches!(
         element_kind_for(&document, "Quarterly results overview"),
         Some(crate::types::internal::ElementKind::Heading { .. })
     ));
+}
+
+#[cfg(feature = "layout-detection")]
+fn table_contents(document: &crate::types::internal::InternalDocument) -> Vec<(u32, Vec<Vec<String>>, String)> {
+    document
+        .tables
+        .iter()
+        .map(|table| (table.page_number, table.cells.clone(), table.markdown.clone()))
+        .collect()
+}
+
+#[cfg(feature = "layout-detection")]
+fn table_warnings(document: &crate::types::internal::InternalDocument) -> Vec<&str> {
+    document
+        .processing_warnings
+        .iter()
+        .filter(|warning| warning.source == "pdf_tables")
+        .map(|warning| warning.message.as_ref())
+        .collect()
 }
 
 /// Layout is on but no region is a table, so a missing table model has nothing to degrade.
@@ -165,15 +209,47 @@ fn unavailable_table_model_without_table_hints_does_not_warn() {
     use crate::core::config::layout::TableModel;
 
     let document = table_hint_document(TableModel::Tatr, LayoutHintClass::Text);
-
-    assert!(
-        !document
-            .processing_warnings
-            .iter()
-            .any(|warning| warning.source == "pdf_tables"),
-        "got {:?}",
-        document.processing_warnings
+    let auto = table_hint_document_with(
+        TableModel::SlanetAuto,
+        LayoutHintClass::Text,
+        LOADS_FAIL_AFTER_PREFLIGHT,
+        true,
     );
+
+    for document in [&document, &auto] {
+        assert!(
+            table_warnings(document).is_empty(),
+            "got {:?}",
+            document.processing_warnings
+        );
+    }
+}
+
+#[cfg(feature = "layout-detection")]
+#[test]
+fn should_warn_and_keep_structure_when_the_table_model_fails_to_load_after_the_preflight() {
+    use crate::core::config::layout::TableModel;
+
+    let expected = table_hint_document(TableModel::Disabled, LayoutHintClass::Table);
+    assert!(!expected.tables.is_empty());
+    for (table_model, model_name) in [
+        (TableModel::Tatr, "TATR"),
+        (TableModel::SlanetWired, "SLANeXT"),
+        (TableModel::SlanetWireless, "SLANeXT"),
+        (TableModel::SlanetPlus, "SLANeXT"),
+        (TableModel::SlanetAuto, "SLANeXT (auto)"),
+    ] {
+        let document = table_hint_document_with(table_model, LayoutHintClass::Table, LOADS_FAIL_AFTER_PREFLIGHT, true);
+
+        let warnings = table_warnings(&document);
+        assert_eq!(warnings.len(), 1, "{table_model:?}: got {warnings:?}");
+        assert!(
+            warnings[0].contains(&format!("the {model_name} table model could not be loaded for a page")),
+            "{table_model:?}: got {warnings:?}"
+        );
+        assert_eq!(table_contents(&document), table_contents(&expected), "{table_model:?}");
+        assert_eq!(document.elements, expected.elements, "{table_model:?}");
+    }
 }
 
 /// Helper: a table at `bbox` on `page` whose only content is `markdown`

@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(pdf): A table model that fails to load in the per-page table pass now warns too.**
+  When the table model passed the availability check but could not be loaded for a page, that page's tables were
+  dropped with no warning; they are now read from the page text and a `pdf_tables` processing warning says the
+  named model could not be loaded.
 - **(pdf): A VLM answer for a table or unclassified layout region replaces the native table text inside it.**
   With VLM regions on, the answer was spliced in beside the native table and text it transcribed, so the table printed
   twice. Table elements and body paragraphs mostly inside the region are now removed from the document elements first,
