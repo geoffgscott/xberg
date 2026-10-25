@@ -501,30 +501,89 @@ fn inline_frame_formula<'a>(node: roxmltree::Node, formula_data: &'a AHashMap<St
     }
 }
 
-/// Whether a paragraph has text of its own beside its frames. LibreOffice anchors a formula alone in its
-/// paragraph as a character too, and that one is a display equation, as is one beside only its number: a
-/// numbered equation is written `<text:tab/>{formula}<text:tab/>(<text:sequence>1</text:sequence>)`. The
-/// cached text of a dropped field (`is_odf_dropped_field`) is not written, so it does not count.
-fn has_text_outside_frames(paragraph: roxmltree::Node) -> bool {
-    let mut own = String::new();
-    for node in paragraph.descendants() {
-        if !node.is_text()
-            || !in_paragraph_line(node, paragraph)
-            || node
-                .ancestors()
-                .take_while(|ancestor| *ancestor != paragraph)
-                .any(|ancestor| is_odf_dropped_field(ancestor.tag_name().name()))
-        {
-            continue;
-        }
-        for c in node.text().unwrap_or_default().chars().filter(|c| !c.is_whitespace()) {
-            if !matches!(c, '0'..='9' | '.' | '(' | ')' | '[' | ']') {
-                return true;
+/// What a paragraph or heading holds in its own line, outside its notes, comments, text boxes and dropped fields
+/// (`is_odf_dropped_field`), whose text is written elsewhere or not at all.
+#[derive(Default)]
+struct OwnLine<'a, 'input> {
+    /// Whether the line has a character that is not whitespace, punctuation or part of an equation number.
+    worded: bool,
+    /// The line's other characters, kept until it is `worded`.
+    marks: String,
+    /// The frames outside notes, comments and dropped fields, each flagged when it sits in the line itself.
+    frames: Vec<(roxmltree::Node<'a, 'input>, bool)>,
+}
+
+impl OwnLine<'_, '_> {
+    fn read(&mut self, text: &str) {
+        for c in text.chars().filter(|c| !c.is_whitespace()) {
+            if self.worded {
+                return;
             }
-            own.push(c);
+            if matches!(c, '0'..='9' | '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']') {
+                self.marks.push(c);
+            } else {
+                self.worded = true;
+            }
         }
     }
-    !own.is_empty() && !is_equation_number(&own)
+
+    /// Whether the line has text of its own beside its frames. LibreOffice anchors a formula alone in its
+    /// paragraph as a character too, and that one is a display equation, as is one beside only its number or
+    /// the punctuation typed after it: a numbered equation is written
+    /// `<text:tab/>{formula}<text:tab/>(<text:sequence>1</text:sequence>)`.
+    fn has_text(&self) -> bool {
+        let marks = self.marks.trim_matches(|c| matches!(c, '.' | ',' | ';' | ':'));
+        self.worded || !(marks.is_empty() || is_equation_number(marks))
+    }
+}
+
+/// Walk a paragraph or heading's line once, spending a nesting level per element level as `collect_inline_run`
+/// does, so a line too deep for the budget stops here as it would there rather than being walked whole. Notes,
+/// comments and dropped fields are not entered: neither walk writes them into the line.
+fn walk_own_line<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    in_line: bool,
+    line: &mut OwnLine<'a, 'input>,
+    budget: &mut SecurityBudget,
+) -> crate::error::Result<()> {
+    for child in node.children() {
+        let name = child.tag_name().name();
+        if child.is_text() {
+            if in_line {
+                line.read(child.text().unwrap_or_default());
+            }
+            continue;
+        }
+        if matches!(name, "note" | "annotation") || is_odf_dropped_field(name) {
+            continue;
+        }
+        if name == "frame" {
+            // Punctuation before a formula separates it from what came before, so it is the line's own text;
+            // only the punctuation after the last formula belongs to the equation. ~keep
+            line.worded |= in_line && line.marks.contains([',', ';', ':']);
+            line.frames.push((child, in_line));
+        }
+        let child_in_line = in_line && !matches!(name, "frame" | "text-box");
+        if child.children().all(|grandchild| grandchild.is_text()) {
+            if child_in_line {
+                for grandchild in child.children() {
+                    line.read(grandchild.text().unwrap_or_default());
+                }
+            }
+        } else {
+            with_nested_budget(budget, |budget| walk_own_line(child, child_in_line, line, budget))?;
+        }
+    }
+    Ok(())
+}
+
+fn own_line<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    budget: &mut SecurityBudget,
+) -> crate::error::Result<OwnLine<'a, 'input>> {
+    let mut line = OwnLine::default();
+    walk_own_line(node, true, &mut line, budget)?;
+    Ok(line)
 }
 
 /// Whether `text` is an equation number such as `(1)`, `(2.3)` or `[4]`: digits and dots in brackets.
@@ -536,15 +595,6 @@ fn is_equation_number(text: &str) -> bool {
     inner.is_some_and(|inner| {
         inner.starts_with(|c: char| c.is_ascii_digit()) && inner.chars().all(|c| c.is_ascii_digit() || c == '.')
     })
-}
-
-/// Whether a node inside `paragraph` is part of its line of text. Notes, comments and text boxes nested in the
-/// paragraph are written elsewhere, so a formula inside one cannot be written inline.
-fn in_paragraph_line(node: roxmltree::Node, paragraph: roxmltree::Node) -> bool {
-    node.ancestors()
-        .skip(1)
-        .take_while(|ancestor| *ancestor != paragraph)
-        .all(|ancestor| !matches!(ancestor.tag_name().name(), "note" | "annotation" | "frame" | "text-box"))
 }
 
 /// Process a single `draw:frame`: an embedded formula object takes priority,
@@ -874,36 +924,7 @@ pub(crate) fn build_internal_elements(
             }
             "change-end" => {}
             "h" => {
-                let (text, _annotations, uris) = collect_odt_annotations(node, style_map, None, budget)?;
-                for uri in uris {
-                    builder.push_uri(uri);
-                }
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    budget.account_text(trimmed.len())?;
-                    let level = node
-                        .attribute(("urn:oasis:names:tc:opendocument:xmlns:text:1.0", "outline-level"))
-                        .and_then(|v| v.parse::<u8>().ok())
-                        .unwrap_or(1);
-                    builder.push_heading(level, trimmed, None, None);
-                }
-                // After the heading, so the equation stays in the heading's section. A heading's notes and
-                // comments are not written, so a formula inside one is left out with them. ~keep
-                let in_heading_line = |desc: &roxmltree::Node| {
-                    desc.ancestors()
-                        .skip(1)
-                        .take_while(|ancestor| *ancestor != node)
-                        .all(|ancestor| !matches!(ancestor.tag_name().name(), "note" | "annotation"))
-                };
-                for desc in node
-                    .descendants()
-                    .filter(|desc| desc.tag_name().name() == "frame" && in_heading_line(desc))
-                {
-                    let latex = frame_formula(desc, formula_data).unwrap_or_default();
-                    if !latex.is_empty() {
-                        builder.push_formula(latex, None, None);
-                    }
-                }
+                push_odt_heading(node, builder, style_map, formula_data, budget)?;
                 paragraph_index += 1;
             }
             "frame" => {
@@ -928,13 +949,20 @@ pub(crate) fn build_internal_elements(
             }
             "p" => {
                 let mut footnote_markers: Vec<(String, String)> = Vec::new();
-                let inline_formulas = has_text_outside_frames(node).then_some(formula_data);
+                let line = own_line(node, budget)?;
+                let inline_formulas = line.has_text().then_some(formula_data);
+                let in_line: ahash::AHashSet<roxmltree::NodeId> = line
+                    .frames
+                    .iter()
+                    .filter(|(_, in_line)| *in_line)
+                    .map(|(frame, _)| frame.id())
+                    .collect();
 
                 for desc in node.descendants() {
                     if desc.tag_name().name() != "frame" {
                         continue;
                     }
-                    let inline = inline_formulas.filter(|_| in_paragraph_line(desc, node));
+                    let inline = inline_formulas.filter(|_| in_line.contains(&desc.id()));
                     match inline.and_then(|formulas| inline_frame_formula(desc, formulas)) {
                         // `formulas` lists these after the formula blocks (`derive_formulas`), not by position. ~keep
                         Some(latex) => builder.record_formula(latex, None),
@@ -1115,6 +1143,53 @@ pub(crate) fn build_internal_elements(
                 }
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Push a `text:h` heading. A heading with text of its own keeps an as-char formula in that text, as a
+/// paragraph does; any other formula in its line follows it as a block, so the equation stays in the heading's
+/// section. A heading's notes and comments are not written, so a formula inside one is left out with them.
+fn push_odt_heading(
+    node: roxmltree::Node,
+    builder: &mut InternalDocumentBuilder,
+    style_map: &AHashMap<String, OdtStyleProps>,
+    formula_data: &AHashMap<String, String>,
+    budget: &mut SecurityBudget,
+) -> crate::error::Result<()> {
+    let line = own_line(node, budget)?;
+    let inline_formulas = line.has_text().then_some(formula_data);
+    let (text, annotations, uris) = collect_odt_annotations(node, style_map, inline_formulas, budget)?;
+    for uri in uris {
+        builder.push_uri(uri);
+    }
+    let (trimmed, mut annotations) = crate::types::builder::trim_text_and_annotations(&text, annotations);
+    if !trimmed.is_empty() {
+        budget.account_text(trimmed.len())?;
+        let level = node
+            .attribute(("urn:oasis:names:tc:opendocument:xmlns:text:1.0", "outline-level"))
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(1);
+        let index = builder.push_heading(level, trimmed, None, None);
+        // Only the math: ODT headings carry no span-style or link annotations. ~keep
+        annotations.retain(|span| span.kind.math_display().is_some());
+        if !annotations.is_empty() {
+            builder.set_annotations(index, annotations);
+        }
+    }
+    for &(frame, in_line) in &line.frames {
+        match inline_formulas
+            .filter(|_| in_line)
+            .and_then(|formulas| inline_frame_formula(frame, formulas))
+        {
+            Some(latex) => builder.record_formula(latex, None),
+            None => {
+                let latex = frame_formula(frame, formula_data).unwrap_or_default();
+                if !latex.is_empty() {
+                    builder.push_formula(latex, None, None);
+                }
+            }
         }
     }
     Ok(())
@@ -1471,7 +1546,7 @@ fn collect_inline_run(
                     // `text:bookmark-ref`): recurse rather than keep only its
                     // first text node, which drops everything after a nested
                     // element.
-                    // A formula in a text box inside the paragraph is a block of its own (`in_paragraph_line`). ~keep
+                    // A formula in a text box inside the paragraph is a block of its own (`walk_own_line`). ~keep
                     let sources = match child.tag_name().name() {
                         "frame" | "text-box" => InlineSources {
                             inline_formulas: None,
@@ -2028,6 +2103,10 @@ mod tests {
     }
 
     fn extract_formula_odt(body: &str) -> InternalDocument {
+        try_extract_formula_odt(body).expect("extracts")
+    }
+
+    fn try_extract_formula_odt(body: &str) -> crate::error::Result<InternalDocument> {
         let content = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content {CONTENT_XML_NAMESPACES}><office:body><office:text>{body}</office:text></office:body></office:document-content>"#
@@ -2052,7 +2131,7 @@ mod tests {
             ),
         ]);
         let mut budget = SecurityBudget::with_defaults();
-        build_internal_document(&mut archive, &mut budget).expect("extracts")
+        build_internal_document(&mut archive, &mut budget)
     }
 
     fn formula_frame(anchor: &str, object: u8) -> String {
@@ -2181,17 +2260,25 @@ mod tests {
     }
 
     #[test]
-    fn test_formula_in_a_heading_follows_the_heading() {
+    fn test_formula_in_a_heading_sentence_stays_inline_and_others_follow_it() {
         let doc = extract_formula_odt(&format!(
-            r#"<text:h text:outline-level="2">Area {}</text:h><text:h text:outline-level="2">{}</text:h>"#,
+            r#"<text:h text:outline-level="2">Solving {} for x</text:h><text:h text:outline-level="2">{}</text:h>
+            <text:h text:outline-level="2">Area {}</text:h>"#,
             formula_frame("as-char", 1),
             formula_frame("as-char", 2),
+            formula_frame("paragraph", 2),
         ));
         assert_eq!(
             formula_blocks(&doc),
-            [("heading", "Area"), ("formula", "a^{2}"), ("formula", "y")]
+            [
+                ("heading", "Solving $a^{2}$ for x"),
+                ("formula", "y"),
+                ("heading", "Area"),
+                ("formula", "y")
+            ]
         );
-        assert!(math_spans(&doc).is_empty());
+        assert_eq!(math_spans(&doc), ["$a^{2}$"]);
+        assert_eq!(recorded_latex(&doc), ["a^{2}"]);
     }
 
     #[test]
@@ -2237,6 +2324,49 @@ mod tests {
 
         let sentence = extract_formula_odt(&format!(r#"<text:p>{} (1a)</text:p>"#, formula_frame("as-char", 2)));
         assert_eq!(formula_blocks(&sentence), [("paragraph", "$y$ (1a)")]);
+    }
+
+    #[test]
+    fn test_display_formula_keeps_the_punctuation_typed_after_it() {
+        for tail in [".", ",", ", (1)"] {
+            let doc = extract_formula_odt(&format!(r#"<text:p>{}{tail}</text:p>"#, formula_frame("as-char", 2)));
+            assert_eq!(formula_blocks(&doc), [("formula", "y"), ("paragraph", tail)], "{tail}");
+            assert!(doc.recorded_formulas.is_empty(), "{tail}");
+        }
+    }
+
+    #[test]
+    fn test_punctuation_between_formulas_keeps_them_inline() {
+        for separator in [",", ";", ":"] {
+            let doc = extract_formula_odt(&format!(
+                "<text:p>{}{separator} {}</text:p>",
+                formula_frame("as-char", 1),
+                formula_frame("as-char", 2)
+            ));
+            assert_eq!(math_spans(&doc), ["$a^{2}$", "$y$"], "{separator}");
+        }
+    }
+
+    /// `collect_inline_run` fails a line nested past the depth cap; the own-line walk must stop there too, not
+    /// walk every level first (an ancestor scan per text node ran quadratic here).
+    #[test]
+    fn test_line_nested_past_the_depth_cap_fails_fast() {
+        // A small cap keeps the walk within a test thread's stack.
+        let limits = crate::extractors::security::SecurityLimits {
+            max_nesting_depth: 16,
+            max_xml_depth: 16,
+            ..Default::default()
+        };
+        let xml = format!(
+            r#"<text:p xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">{}1{}</text:p>"#,
+            "<text:span>".repeat(40),
+            "</text:span>".repeat(40),
+        );
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let error = own_line(doc.root_element(), &mut SecurityBudget::from_limits(&limits))
+            .err()
+            .expect("nested past the cap");
+        assert!(error.to_string().contains("Nesting too deep"), "{error}");
     }
 
     #[test]

@@ -149,7 +149,7 @@ fn build_internal_document(
 
                 // A heading's display equations follow its note and comment refs, which attach to the block they
                 // follow, so the refs stay on the heading and the equations in the heading's section. ~keep
-                let formulas_after_refs: &[String] = if heading_level.is_some() && !text.is_empty() {
+                let formulas_after_refs: &[String] = if heading_level.is_some() && !text.trim().is_empty() {
                     &math_formulas
                 } else {
                     &[]
@@ -163,7 +163,7 @@ fn build_internal_document(
                         current_list_numbering_id = None;
                         open_list_count = 0;
                     }
-                    let heading_idx = (!text.is_empty()).then(|| {
+                    let heading_idx = (!text.trim().is_empty()).then(|| {
                         let idx = builder.push_heading(level, &text, Some(current_page), None);
                         if !annotations.is_empty() {
                             builder.set_annotations(idx, annotations.clone());
@@ -182,7 +182,7 @@ fn build_internal_document(
                     builder.push_quote_start();
                     // Before the quote text, where a plain paragraph puts its equations too. ~keep
                     let formula_idx = push_formulas(&mut builder, &math_formulas, current_page);
-                    let para_idx = (!text.is_empty())
+                    let para_idx = (!text.trim().is_empty())
                         .then(|| builder.push_paragraph(&text, annotations.clone(), Some(current_page), None));
                     builder.push_quote_end();
                     para_idx.or(formula_idx)
@@ -5112,10 +5112,25 @@ mod tests {
 
     #[tokio::test]
     async fn should_emit_a_heading_holding_only_display_math_as_a_formula() {
-        let body = format!(r#"<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>{DISPLAY_X}</w:p>"#);
-        let (elements, result) = extract_math_docx(&body).await;
-        assert_eq!(math_blocks(&elements), [("formula", "x=1")]);
-        assert_eq!(formula_latex(&result), ["x=1"]);
+        let space = r#"<w:r><w:t xml:space="preserve"> </w:t></w:r>"#;
+        for blank in ["", space, "<w:r><w:tab/></w:r>"] {
+            let body = format!(
+                r#"<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>{blank}{DISPLAY_X}</w:p>
+                <w:p><w:pPr><w:pStyle w:val="Quote"/></w:pPr>{blank}{DISPLAY_Y}</w:p>"#
+            );
+            let (elements, result) = extract_math_docx(&body).await;
+            assert_eq!(
+                math_blocks(&elements),
+                [
+                    ("formula", "x=1"),
+                    ("quote_start", ""),
+                    ("formula", "y=2"),
+                    ("quote_end", "")
+                ],
+                "{blank}"
+            );
+            assert_eq!(formula_latex(&result), ["x=1", "y=2"], "{blank}");
+        }
     }
 
     /// Renderers attach a note reference to the block it follows, so a heading's equations come after its refs.
