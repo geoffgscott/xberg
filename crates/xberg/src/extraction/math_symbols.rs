@@ -312,6 +312,30 @@ pub(crate) fn operator_name_to_latex(name: &str) -> Option<(&'static str, bool)>
     Some(latex)
 }
 
+/// The LaTeX of an operator whose under and over scripts are its limits: a big operator (a sum, an integral) or
+/// a name that takes limits (`lim`, `max`, `det`).
+///
+/// MathML's operator dictionary gives integrals no `movablelimits`, so their limits stack in every style,
+/// while TeX sets `\int_{a}^{b}` to the side; the integral family therefore carries `\limits`. An `mi`
+/// `lim` also stacks in every style, but is left as `\lim_{n}`, which matches it in display style.
+pub(crate) fn limits_operator_to_latex(text: &str) -> Option<&'static str> {
+    if let Some((latex, true)) = operator_name_to_latex(text) {
+        return Some(latex);
+    }
+    let mut chars = text.chars();
+    let first = chars.next()?;
+    if chars.next().is_some() {
+        return None;
+    }
+    match first {
+        '\u{222B}' => Some("\\int\\limits"),
+        '\u{222C}' => Some("\\iint\\limits"),
+        '\u{222D}' => Some("\\iiint\\limits"),
+        '\u{222E}' => Some("\\oint\\limits"),
+        _ => big_operator_to_latex(first).map(str::trim_end),
+    }
+}
+
 /// N-ary big operators (sums, products, integrals, and their "big" logic/set variants).
 pub(crate) fn big_operator_to_latex(ch: char) -> Option<&'static str> {
     match ch {

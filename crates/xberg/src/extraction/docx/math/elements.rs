@@ -142,6 +142,7 @@ pub(super) fn collect_nary(reader: &mut Reader<&[u8]>, budget: &mut SecurityBudg
     let mut body = Vec::new();
     let mut sub_hide = false;
     let mut sup_hide = false;
+    let mut stacked = false;
     let mut buf = Vec::new();
 
     loop {
@@ -153,7 +154,7 @@ pub(super) fn collect_nary(reader: &mut Reader<&[u8]>, budget: &mut SecurityBudg
                     "m:naryPr" => {
                         // `collect_nary_pr` reads through its own `</m:naryPr>` without
                         // calling `budget.leave()`; refund the enter above.
-                        collect_nary_pr(reader, &mut chr, &mut sub_hide, &mut sup_hide, budget)?;
+                        collect_nary_pr(reader, &mut chr, &mut sub_hide, &mut sup_hide, &mut stacked, budget)?;
                         budget.leave();
                     }
                     "m:sub" => sub = collect_children(reader, "m:sub", budget)?,
@@ -181,6 +182,7 @@ pub(super) fn collect_nary(reader: &mut Reader<&[u8]>, budget: &mut SecurityBudg
         body,
         sub_hide,
         sup_hide,
+        stacked,
     })
 }
 
@@ -190,6 +192,7 @@ pub(super) fn collect_nary_pr(
     chr: &mut String,
     sub_hide: &mut bool,
     sup_hide: &mut bool,
+    stacked: &mut bool,
     budget: &mut SecurityBudget,
 ) -> Result<(), SecurityError> {
     let mut buf = Vec::new();
@@ -208,6 +211,9 @@ pub(super) fn collect_nary_pr(
                 }
                 "m:supHide" => {
                     *sup_hide = get_m_val(e).as_deref() != Some("0");
+                }
+                "m:limLoc" => {
+                    *stacked = get_m_val(e).as_deref() == Some("undOvr");
                 }
                 _ => {}
             },

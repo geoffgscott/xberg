@@ -5,7 +5,7 @@
 //! module; everything else here is a private helper of the rendering phase.
 
 use super::MmlNode;
-use crate::extraction::math_symbols::{big_operator_to_latex, operator_name_to_latex, render_run_text};
+use crate::extraction::math_symbols::{limits_operator_to_latex, render_run_text};
 
 /// Render a slice of `MmlNode`s to LaTeX, concatenated with no separators.
 pub(super) fn render_nodes(nodes: &[MmlNode]) -> String {
@@ -344,27 +344,8 @@ fn render_text_content(text: &str, out: &mut String) {
 
 /// The LaTeX of a base whose under and over scripts are its limits: a big operator (a sum, an integral) or a
 /// function name that takes limits (`lim`, `max`, `det`).
-///
-/// MathML's operator dictionary gives integrals no `movablelimits`, so their limits stack in every style,
-/// while TeX sets `\int_{a}^{b}` to the side; the integral family therefore carries `\limits`. An `mi`
-/// `lim` also stacks in every style, but is left as `\lim_{n}`, which matches it in display style.
 fn limits_base(base: &MmlNode) -> Option<&'static str> {
-    let text = script_leaf_text(base)?;
-    if let Some((latex, true)) = operator_name_to_latex(text) {
-        return Some(latex);
-    }
-    let mut chars = text.chars();
-    let first = chars.next()?;
-    if chars.next().is_some() {
-        return None;
-    }
-    match first {
-        '\u{222B}' => Some("\\int\\limits"),
-        '\u{222C}' => Some("\\iint\\limits"),
-        '\u{222D}' => Some("\\iiint\\limits"),
-        '\u{222E}' => Some("\\oint\\limits"),
-        _ => big_operator_to_latex(first).map(str::trim_end),
-    }
+    script_leaf_text(base).and_then(limits_operator_to_latex)
 }
 
 /// The trimmed text of a node that is a single `mo`/`mi` leaf, possibly inside grouping, or `None` when the

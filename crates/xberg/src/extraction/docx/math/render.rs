@@ -1,4 +1,5 @@
 use super::*;
+use crate::extraction::math_symbols::{big_operator_to_latex, limits_operator_to_latex, operator_name_to_latex};
 
 /// Render a slice of MathNodes to LaTeX.
 pub(super) fn render_nodes(nodes: &[MathNode]) -> String {
@@ -25,7 +26,12 @@ fn render_node(node: &MathNode, out: &mut String) {
             body,
             sub_hide,
             sup_hide,
-        } => render_nary(chr, sub, sup, body, (*sub_hide, *sup_hide), out),
+            stacked,
+        } => {
+            let shows_limits = (!sub_hide && !sub.is_empty()) || (!sup_hide && !sup.is_empty());
+            let op = nary_operator(chr, *stacked && shows_limits);
+            render_nary(op, sub, sup, body, (*sub_hide, *sup_hide), out)
+        }
         MathNode::Delim {
             begin_chr,
             end_chr,
@@ -124,9 +130,9 @@ fn render_rad(deg: &[MathNode], body: &[MathNode], deg_hide: bool, out: &mut Str
 
 /// Render an `m:nary` node. `hide` is `(sub_hide, sup_hide)`, bundled purely to keep this
 /// function's parameter list manageable.
-fn render_nary(chr: &str, sub: &[MathNode], sup: &[MathNode], body: &[MathNode], hide: (bool, bool), out: &mut String) {
+fn render_nary(op: &str, sub: &[MathNode], sup: &[MathNode], body: &[MathNode], hide: (bool, bool), out: &mut String) {
     let (sub_hide, sup_hide) = hide;
-    out.push_str(&nary_chr_to_latex(chr));
+    out.push_str(op);
     if !sub_hide && !sub.is_empty() {
         out.push_str("_{");
         out.push_str(&render_nodes(sub));
@@ -159,35 +165,10 @@ fn render_delim(begin_chr: &str, end_chr: &str, sep_chr: &str, elements: &[Vec<M
 
 fn render_func(name: &[MathNode], body: &[MathNode], out: &mut String) {
     let func_name = render_nodes(name);
-    let latex_func = match func_name.trim() {
-        "sin" => "\\sin",
-        "cos" => "\\cos",
-        "tan" => "\\tan",
-        "cot" => "\\cot",
-        "sec" => "\\sec",
-        "csc" => "\\csc",
-        "log" => "\\log",
-        "ln" => "\\ln",
-        "exp" => "\\exp",
-        "lim" => "\\lim",
-        "max" => "\\max",
-        "min" => "\\min",
-        "sup" => "\\sup",
-        "inf" => "\\inf",
-        "det" => "\\det",
-        "gcd" => "\\gcd",
-        "deg" => "\\deg",
-        "dim" => "\\dim",
-        "hom" => "\\hom",
-        "ker" => "\\ker",
-        "arg" => "\\arg",
-        "sinh" => "\\sinh",
-        "cosh" => "\\cosh",
-        "tanh" => "\\tanh",
-        _ => "",
-    };
-    if !latex_func.is_empty() {
-        out.push_str(latex_func);
+    if let Some((latex, _)) = operator_name_to_latex(func_name.trim()) {
+        out.push_str(latex);
+    } else if is_limit_name(name) {
+        out.push_str(&func_name);
     } else {
         out.push_str("\\mathrm{");
         out.push_str(&func_name);
@@ -196,6 +177,16 @@ fn render_func(name: &[MathNode], body: &[MathNode], out: &mut String) {
     out.push('{');
     out.push_str(&render_nodes(body));
     out.push('}');
+}
+
+/// Whether a function name is a limit under or over a name that takes limits, which is how Word writes
+/// `lim` with its limit.
+fn is_limit_name(name: &[MathNode]) -> bool {
+    match name {
+        [MathNode::LimLow { body, .. } | MathNode::LimUpp { body, .. }] => limits_base(body).is_some(),
+        [MathNode::Group { children }] => is_limit_name(children),
+        _ => false,
+    }
 }
 
 fn render_acc(chr: &str, body: &[MathNode], out: &mut String) {
@@ -217,6 +208,13 @@ fn render_eqarr(rows: &[Vec<MathNode>], out: &mut String) {
 }
 
 fn render_limlow(body: &[MathNode], lim: &[MathNode], out: &mut String) {
+    if let Some(op) = limits_base(body) {
+        out.push_str(op);
+        out.push_str("_{");
+        out.push_str(&render_nodes(lim));
+        out.push('}');
+        return;
+    }
     out.push_str("\\underset{");
     out.push_str(&render_nodes(lim));
     out.push_str("}{");
@@ -225,11 +223,28 @@ fn render_limlow(body: &[MathNode], lim: &[MathNode], out: &mut String) {
 }
 
 fn render_limupp(body: &[MathNode], lim: &[MathNode], out: &mut String) {
+    if let Some(op) = limits_base(body) {
+        out.push_str(op);
+        out.push_str("^{");
+        out.push_str(&render_nodes(lim));
+        out.push('}');
+        return;
+    }
     out.push_str("\\overset{");
     out.push_str(&render_nodes(lim));
     out.push_str("}{");
     out.push_str(&render_nodes(body));
     out.push('}');
+}
+
+/// The LaTeX of a limit's base that takes the limit as a script (`\lim_{n}`, `\sum_{i}`), as MathML's
+/// `munder` and `mover` do.
+fn limits_base(base: &[MathNode]) -> Option<&'static str> {
+    match base {
+        [MathNode::Run(text)] => limits_operator_to_latex(text.trim()),
+        [MathNode::Group { children }] => limits_base(children),
+        _ => None,
+    }
 }
 
 fn render_bar(body: &[MathNode], top: bool, out: &mut String) {
@@ -299,25 +314,11 @@ fn render_group(nodes: &[MathNode], out: &mut String) {
     }
 }
 
-/// Map n-ary character to LaTeX command.
-fn nary_chr_to_latex(chr: &str) -> String {
-    if let Some(ch) = chr.chars().next() {
-        match ch {
-            '\u{2211}' => return "\\sum".to_string(),
-            '\u{220F}' => return "\\prod".to_string(),
-            '\u{2210}' => return "\\coprod".to_string(),
-            '\u{222B}' => return "\\int".to_string(),
-            '\u{222C}' => return "\\iint".to_string(),
-            '\u{222D}' => return "\\iiint".to_string(),
-            '\u{222E}' => return "\\oint".to_string(),
-            '\u{22C0}' => return "\\bigwedge".to_string(),
-            '\u{22C1}' => return "\\bigvee".to_string(),
-            '\u{22C2}' => return "\\bigcap".to_string(),
-            '\u{22C3}' => return "\\bigcup".to_string(),
-            _ => {}
-        }
-    }
-    chr.to_string()
+/// The LaTeX of an n-ary operator, with `\limits` on an integral whose limits are `stacked` under and over it.
+fn nary_operator(chr: &str, stacked: bool) -> &str {
+    let stacked_op = limits_operator_to_latex(chr).filter(|_| stacked);
+    let op = chr.chars().next().and_then(big_operator_to_latex).map(str::trim_end);
+    stacked_op.or(op).unwrap_or(chr)
 }
 
 /// Map delimiter character to LaTeX.

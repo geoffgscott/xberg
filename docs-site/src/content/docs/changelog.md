@@ -67,6 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(docx): Write equation limits and function names as the MathML converter does.**
+  `lim` with its limit read `\mathrm{\underset{n\rightarrow \infty }{lim}}{f(x)}`. A limit under or over a
+  limit-taking name or big operator now reads `\lim_{n\rightarrow \infty }`, function names use the shared table
+  (adding `\arcsin`, `\coth`, `\lg`, `\liminf`, `\Pr` and others), and an integral whose `m:limLoc` is `undOvr`
+  takes `\limits`.
 - **(odt): Keep an inline formula object in its sentence, and the formulas of headings.**
   A formula frame anchored as a character was written as a formula block ahead of its paragraph. In a paragraph
   with text of its own it is now written where it sits as `$...$`, with an `xberg.math` annotation, and listed in

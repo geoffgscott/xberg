@@ -53,6 +53,8 @@ enum MathNode {
         body: Vec<MathNode>,
         sub_hide: bool,
         sup_hide: bool,
+        /// `m:limLoc` is `undOvr`: the limits sit under and over the operator.
+        stacked: bool,
     },
     /// Delimiter: \left( ... \right)
     Delim {
