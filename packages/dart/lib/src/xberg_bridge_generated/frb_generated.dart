@@ -20998,8 +20998,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   LayoutDetectionConfig dco_decode_layout_detection_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return LayoutDetectionConfig(
       strategy: dco_decode_layout_strategy(arr[0]),
       confidenceThreshold: dco_decode_opt_box_autoadd_f_64(arr[1]),
@@ -21009,6 +21009,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       tableOverlapPreference: dco_decode_table_overlap_preference(arr[5]),
       acceleration: dco_decode_opt_box_autoadd_acceleration_config(arr[6]),
       enableChartUnderstanding: dco_decode_bool(arr[7]),
+      pages: dco_decode_opt_list_prim_i_64_strict(arr[8]),
     );
   }
 
@@ -30459,6 +30460,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       deserializer,
     );
     var var_enableChartUnderstanding = sse_decode_bool(deserializer);
+    var var_pages = sse_decode_opt_list_prim_i_64_strict(deserializer);
     return LayoutDetectionConfig(
       strategy: var_strategy,
       confidenceThreshold: var_confidenceThreshold,
@@ -30468,6 +30470,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       tableOverlapPreference: var_tableOverlapPreference,
       acceleration: var_acceleration,
       enableChartUnderstanding: var_enableChartUnderstanding,
+      pages: var_pages,
     );
   }
 
@@ -41442,6 +41445,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serializer,
     );
     sse_encode_bool(self.enableChartUnderstanding, serializer);
+    sse_encode_opt_list_prim_i_64_strict(self.pages, serializer);
   }
 
   @protected
