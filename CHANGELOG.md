@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **(layout): `LayoutDetectionConfig.pages` runs the layout model only on the listed PDF pages.**
+  The 1-indexed list decides instead of `strategy`, so callers that know which pages need layout skip the model
+  elsewhere; an empty list runs it on no page. Each page's reason is recorded as `listed_page` or `unlisted_page` in
+  `layout_gate_reasons`, and the CLI gains `--layout-pages`. (#1322)
 - **(api): Set `include_image_data: false` to omit raw image byte arrays from extraction responses.**
   JSON and multipart requests support this option for synchronous and asynchronous extraction; image metadata
   and optional Base64 data remain available, and the default response is unchanged. (#2187)

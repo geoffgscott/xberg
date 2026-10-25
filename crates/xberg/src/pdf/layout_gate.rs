@@ -14,6 +14,9 @@
 //! [`super::scan_detect`]: a page that cannot be inspected must never abort
 //! extraction, it just runs the model.
 //!
+//! An explicit `LayoutDetectionConfig::pages` list replaces the pre-screen
+//! through [`listed_page_decisions`].
+//!
 //! [`LayoutStrategy::Auto`]: crate::core::config::layout::LayoutStrategy::Auto
 
 use xberg_native_pdf::PdfDocument;
@@ -91,6 +94,10 @@ pub(crate) enum GateReason {
     SignalsUnavailable,
     /// Plain single-column text: the model has nothing to find.
     PlainText,
+    /// `LayoutDetectionConfig::pages` lists the page.
+    ListedPage,
+    /// `LayoutDetectionConfig::pages` is set and does not list the page.
+    UnlistedPage,
 }
 
 impl GateReason {
@@ -106,6 +113,8 @@ impl GateReason {
             Self::FormWidgets => "form_widgets",
             Self::SignalsUnavailable => "signals_unavailable",
             Self::PlainText => "plain_text",
+            Self::ListedPage => "listed_page",
+            Self::UnlistedPage => "unlisted_page",
         }
     }
 }
@@ -438,6 +447,41 @@ pub(crate) fn decide_pages(doc: &PdfDocument, page_count: usize) -> Vec<PageGate
         .collect()
 }
 
+/// Decide every page from an explicit 1-indexed page list.
+///
+/// Entries the document does not have (0, or past the last page) select
+/// nothing and are warned about once; order and duplicates do not matter.
+pub(crate) fn listed_page_decisions(pages: &[u32], page_count: usize) -> Vec<PageGateDecision> {
+    let mut listed = vec![false; page_count];
+    let mut missing: Vec<u32> = Vec::new();
+    for &page in pages {
+        match (page as usize).checked_sub(1).and_then(|index| listed.get_mut(index)) {
+            Some(slot) => *slot = true,
+            None => missing.push(page),
+        }
+    }
+    if !missing.is_empty() {
+        missing.sort_unstable();
+        missing.dedup();
+        tracing::warn!(
+            ?missing,
+            page_count,
+            "layout.pages lists pages the document does not have (pages are 1-indexed); ignoring them"
+        );
+    }
+    listed
+        .into_iter()
+        .map(|run_layout| PageGateDecision {
+            run_layout,
+            reason: if run_layout {
+                GateReason::ListedPage
+            } else {
+                GateReason::UnlistedPage
+            },
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -667,5 +711,50 @@ mod tests {
         let decision = decide_page(&signals);
         assert!(decision.run_layout);
         assert_eq!(decision.reason, GateReason::FormWidgets);
+    }
+
+    fn listed(decisions: &[PageGateDecision]) -> Vec<(bool, &'static str)> {
+        decisions
+            .iter()
+            .map(|decision| (decision.run_layout, decision.reason.wire_name()))
+            .collect()
+    }
+
+    #[test]
+    fn listed_pages_are_one_indexed_and_order_insensitive() {
+        assert_eq!(
+            listed(&listed_page_decisions(&[3, 1, 3], 4)),
+            vec![
+                (true, "listed_page"),
+                (false, "unlisted_page"),
+                (true, "listed_page"),
+                (false, "unlisted_page"),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_page_list_selects_no_page() {
+        assert_eq!(
+            listed(&listed_page_decisions(&[], 2)),
+            vec![(false, "unlisted_page"), (false, "unlisted_page")]
+        );
+    }
+
+    #[test]
+    fn page_zero_and_pages_past_the_end_select_nothing() {
+        assert_eq!(
+            listed(&listed_page_decisions(&[0, 2, 9, u32::MAX], 2)),
+            vec![(false, "unlisted_page"), (true, "listed_page")]
+        );
+        assert_eq!(
+            listed(&listed_page_decisions(&[0, 2], 1)),
+            vec![(false, "unlisted_page")]
+        );
+    }
+
+    #[test]
+    fn single_page_document_runs_only_when_listed() {
+        assert_eq!(listed(&listed_page_decisions(&[1], 1)), vec![(true, "listed_page")]);
     }
 }
