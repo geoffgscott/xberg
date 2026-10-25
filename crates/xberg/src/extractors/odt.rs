@@ -502,10 +502,39 @@ fn inline_frame_formula<'a>(node: roxmltree::Node, formula_data: &'a AHashMap<St
 }
 
 /// Whether a paragraph has text of its own beside its frames. LibreOffice anchors a formula alone in its
-/// paragraph as a character too, and that one is a display equation.
+/// paragraph as a character too, and that one is a display equation, as is one beside only its number: a
+/// numbered equation is written `<text:tab/>{formula}<text:tab/>(<text:sequence>1</text:sequence>)`. The
+/// cached text of a dropped field (`is_odf_dropped_field`) is not written, so it does not count.
 fn has_text_outside_frames(paragraph: roxmltree::Node) -> bool {
-    paragraph.descendants().any(|node| {
-        node.is_text() && node.text().is_some_and(|t| !t.trim().is_empty()) && in_paragraph_line(node, paragraph)
+    let mut own = String::new();
+    for node in paragraph.descendants() {
+        if !node.is_text()
+            || !in_paragraph_line(node, paragraph)
+            || node
+                .ancestors()
+                .take_while(|ancestor| *ancestor != paragraph)
+                .any(|ancestor| is_odf_dropped_field(ancestor.tag_name().name()))
+        {
+            continue;
+        }
+        for c in node.text().unwrap_or_default().chars().filter(|c| !c.is_whitespace()) {
+            if !matches!(c, '0'..='9' | '.' | '(' | ')' | '[' | ']') {
+                return true;
+            }
+            own.push(c);
+        }
+    }
+    !own.is_empty() && !is_equation_number(&own)
+}
+
+/// Whether `text` is an equation number such as `(1)`, `(2.3)` or `[4]`: digits and dots in brackets.
+fn is_equation_number(text: &str) -> bool {
+    let inner = text
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+        .or_else(|| text.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')));
+    inner.is_some_and(|inner| {
+        inner.starts_with(|c: char| c.is_ascii_digit()) && inner.chars().all(|c| c.is_ascii_digit() || c == '.')
     })
 }
 
@@ -858,8 +887,18 @@ pub(crate) fn build_internal_elements(
                         .unwrap_or(1);
                     builder.push_heading(level, trimmed, None, None);
                 }
-                // After the heading, so the equation stays in the heading's section.
-                for desc in node.descendants().filter(|desc| desc.tag_name().name() == "frame") {
+                // After the heading, so the equation stays in the heading's section. A heading's notes and
+                // comments are not written, so a formula inside one is left out with them. ~keep
+                let in_heading_line = |desc: &roxmltree::Node| {
+                    desc.ancestors()
+                        .skip(1)
+                        .take_while(|ancestor| *ancestor != node)
+                        .all(|ancestor| !matches!(ancestor.tag_name().name(), "note" | "annotation"))
+                };
+                for desc in node
+                    .descendants()
+                    .filter(|desc| desc.tag_name().name() == "frame" && in_heading_line(desc))
+                {
                     let latex = frame_formula(desc, formula_data).unwrap_or_default();
                     if !latex.is_empty() {
                         builder.push_formula(latex, None, None);
@@ -897,6 +936,7 @@ pub(crate) fn build_internal_elements(
                     }
                     let inline = inline_formulas.filter(|_| in_paragraph_line(desc, node));
                     match inline.and_then(|formulas| inline_frame_formula(desc, formulas)) {
+                        // `formulas` lists these after the formula blocks (`derive_formulas`), not by position. ~keep
                         Some(latex) => builder.record_formula(latex, None),
                         None => handle_odt_frame(desc, image_data, formula_data, builder),
                     }
@@ -1430,7 +1470,8 @@ fn collect_inline_run(
                     // Unknown wrapper element (e.g. `text:ruby`, `text:meta`,
                     // `text:bookmark-ref`): recurse rather than keep only its
                     // first text node, which drops everything after a nested
-                    // element. A formula in a text box is a block of its own (`in_paragraph_line`).
+                    // element.
+                    // A formula in a text box inside the paragraph is a block of its own (`in_paragraph_line`). ~keep
                     let sources = match child.tag_name().name() {
                         "frame" | "text-box" => InlineSources {
                             inline_formulas: None,
@@ -2154,6 +2195,60 @@ mod tests {
     }
 
     #[test]
+    fn test_formula_in_a_heading_note_or_comment_is_left_out_with_it() {
+        let doc = extract_formula_odt(&format!(
+            r#"<text:h text:outline-level="1">Area<text:note text:id="n1" text:note-class="footnote"><text:note-citation>1</text:note-citation><text:note-body><text:p>where {} is small</text:p></text:note-body></text:note></text:h>
+            <text:h text:outline-level="1">Base<office:annotation><text:p>see {}</text:p></office:annotation></text:h>"#,
+            formula_frame("as-char", 1),
+            formula_frame("as-char", 2),
+        ));
+        assert_eq!(formula_blocks(&doc), [("heading", "Area"), ("heading", "Base")]);
+        assert!(doc.recorded_formulas.is_empty());
+    }
+
+    #[test]
+    fn test_cached_field_text_is_not_text_beside_a_formula() {
+        let doc = extract_formula_odt(&format!(
+            r#"<text:p><text:page-number>3</text:page-number>{}<text:page-count>9</text:page-count></text:p>"#,
+            formula_frame("as-char", 2),
+        ));
+        assert_eq!(formula_blocks(&doc), [("formula", "y")]);
+        assert!(math_spans(&doc).is_empty());
+        assert!(doc.recorded_formulas.is_empty());
+    }
+
+    #[test]
+    fn test_numbered_equation_stays_a_block() {
+        let numbered = extract_formula_odt(&format!(
+            r#"<text:p><text:tab/>{}<text:tab/>(<text:sequence text:ref-name="refText0" text:name="Text" text:formula="ooow:Text+1" style:num-format="1">1</text:sequence>)</text:p>"#,
+            formula_frame("as-char", 2),
+        ));
+        assert_eq!(formula_blocks(&numbered), [("formula", "y"), ("paragraph", "(1)")]);
+        assert!(numbered.recorded_formulas.is_empty());
+
+        for label in ["(1)", "(2.3)", "[4]"] {
+            let plain = extract_formula_odt(&format!(r#"<text:p>{} {label}</text:p>"#, formula_frame("as-char", 2)));
+            assert_eq!(
+                formula_blocks(&plain),
+                [("formula", "y"), ("paragraph", label)],
+                "{label}"
+            );
+        }
+
+        let sentence = extract_formula_odt(&format!(r#"<text:p>{} (1a)</text:p>"#, formula_frame("as-char", 2)));
+        assert_eq!(formula_blocks(&sentence), [("paragraph", "$y$ (1a)")]);
+    }
+
+    #[test]
+    fn test_page_anchored_text_box_paragraph_keeps_its_inline_formula() {
+        let doc = extract_formula_odt(&format!(
+            r#"<draw:frame text:anchor-type="page"><draw:text-box><text:p>where {} is small</text:p></draw:text-box></draw:frame>"#,
+            formula_frame("as-char", 2),
+        ));
+        assert_eq!(formula_blocks(&doc), [("paragraph", "where $y$ is small")]);
+    }
+
+    #[test]
     fn test_block_formula_is_trimmed() {
         let doc = extract_formula_odt(&format!(
             r#"<text:p>{}</text:p><text:p>Angle {} here.</text:p>"#,
@@ -2169,7 +2264,7 @@ mod tests {
     #[test]
     fn test_blank_formula_adds_nothing() {
         use crate::types::internal::ElementKind;
-        // LibreOffice writes a replacement image beside each formula object, outside Pictures/.
+        // LibreOffice writes a replacement image beside each formula object, outside Pictures/. ~keep
         let blank = concat!(
             r#"<draw:frame text:anchor-type="as-char"><draw:object xlink:href="./Object 3"/>"#,
             r#"<draw:image xlink:href="./ObjectReplacements/Object 3"/></draw:frame>"#
@@ -2438,6 +2533,7 @@ mod tests {
         xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
         xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
         xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+        xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
         xmlns:xlink="http://www.w3.org/1999/xlink""#;
 
     fn odt_warnings(doc: &InternalDocument) -> Vec<String> {

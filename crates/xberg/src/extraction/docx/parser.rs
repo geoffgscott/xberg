@@ -873,7 +873,7 @@ impl Paragraph {
     /// `trim_text(false)` to preserve this whitespace.
     pub(crate) fn to_text(&self) -> String {
         let mut text = String::new();
-        // Only the preceding equation's own LaTeX is checked, never plain run text.
+        // Only the preceding equation's own LaTeX is checked, never plain run text. ~keep
         let mut prev_math: Option<&str> = None;
         for run in &self.runs {
             let piece = match run.math_latex {

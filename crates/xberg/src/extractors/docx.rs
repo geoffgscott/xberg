@@ -147,6 +147,14 @@ fn build_internal_document(
                         || lower.contains("quote")
                 });
 
+                // A heading's display equations follow its note and comment refs, which attach to the block they
+                // follow, so the refs stay on the heading and the equations in the heading's section. ~keep
+                let formulas_after_refs: &[String] = if heading_level.is_some() && !text.is_empty() {
+                    &math_formulas
+                } else {
+                    &[]
+                };
+
                 let element_idx: Option<u32> = if let Some(level) = heading_level {
                     if current_list_numbering_id.is_some() {
                         for _ in 0..open_list_count {
@@ -162,9 +170,7 @@ fn build_internal_document(
                         }
                         idx
                     });
-                    // After the heading, so the equation stays in the heading's section.
-                    let formula_idx = push_formulas(&mut builder, &math_formulas, current_page);
-                    heading_idx.or(formula_idx)
+                    heading_idx.or_else(|| push_formulas(&mut builder, &math_formulas, current_page))
                 } else if is_quote_style {
                     if current_list_numbering_id.is_some() {
                         for _ in 0..open_list_count {
@@ -174,6 +180,7 @@ fn build_internal_document(
                         open_list_count = 0;
                     }
                     builder.push_quote_start();
+                    // Before the quote text, where a plain paragraph puts its equations too. ~keep
                     let formula_idx = push_formulas(&mut builder, &math_formulas, current_page);
                     let para_idx = (!text.is_empty())
                         .then(|| builder.push_paragraph(&text, annotations.clone(), Some(current_page), None));
@@ -302,6 +309,7 @@ fn build_internal_document(
                 } else {
                     push_note_refs(&mut builder, doc.note_refs_by_paragraph.get(idx), current_page);
                 }
+                push_formulas(&mut builder, formulas_after_refs, current_page);
             }
             crate::extraction::docx::parser::DocumentElement::Table(idx) => {
                 if current_list_numbering_id.is_some() {
@@ -4898,6 +4906,37 @@ mod tests {
         );
     }
 
+    /// Plain, Json and Custom output keep each page's plain text as its content, so the space shows there.
+    #[tokio::test]
+    async fn should_keep_an_equation_apart_from_a_following_letter_in_plain_page_content() {
+        let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body><w:p>
+            <w:r><w:t xml:space="preserve">Let </w:t></w:r><m:oMath><m:r><m:t>&#x3B1;</m:t></m:r></m:oMath>
+            <w:r><w:t>b hold.</w:t></w:r></w:p></w:body></w:document>"#;
+        let config = ExtractionConfig {
+            output_format: crate::core::config::OutputFormat::Plain,
+            pages: Some(crate::core::config::PageConfig {
+                extract_pages: true,
+                ..Default::default()
+            }),
+            use_cache: false,
+            ..Default::default()
+        };
+        let result = crate::core::extractor::extract_bytes(
+            &build_test_docx(xml),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            &config,
+        )
+        .await
+        .unwrap();
+        let pages = result.pages.expect("pages requested");
+        assert!(
+            pages[0].content.contains("Let \\alpha b hold."),
+            "{:?}",
+            pages[0].content
+        );
+    }
+
     #[tokio::test]
     async fn should_keep_issue_2123_inline_math_in_its_docx_sentence() {
         let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -5077,6 +5116,40 @@ mod tests {
         let (elements, result) = extract_math_docx(&body).await;
         assert_eq!(math_blocks(&elements), [("formula", "x=1")]);
         assert_eq!(formula_latex(&result), ["x=1"]);
+    }
+
+    /// Renderers attach a note reference to the block it follows, so a heading's equations come after its refs.
+    #[tokio::test]
+    async fn should_keep_a_heading_note_reference_on_the_heading_before_its_display_math() {
+        let document_xml = format!(
+            r#"<w:document xmlns:w="{NOTES_DOCUMENT_NS}"
+            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Area</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r>{DISPLAY_X}</w:p>
+</w:body></w:document>"#
+        );
+        let data = build_test_docx_with_parts(&document_xml, None, Some(NOTE_A_B_FOOTNOTES), None, None, None, None);
+        let internal = DocxExtractor::new()
+            .extract_content(
+                &data,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                &ExtractionConfig::default(),
+            )
+            .await
+            .unwrap();
+        let kinds: Vec<&str> = internal
+            .elements
+            .iter()
+            .map(|element| element.kind.discriminant())
+            .filter(|kind| ["heading", "footnote_ref", "formula"].contains(kind))
+            .collect();
+        assert_eq!(kinds, ["heading", "footnote_ref", "formula"]);
+        let result = crate::extraction::derive::derive_extraction_result(
+            internal,
+            true,
+            crate::core::config::OutputFormat::Markdown,
+        );
+        let markdown = result.formatted_content.as_deref().unwrap_or(&result.content);
+        assert!(markdown.starts_with("# Area[^1]\n\n```math\nx=1\n```"), "{markdown:?}");
     }
 
     #[tokio::test]

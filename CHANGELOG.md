@@ -65,25 +65,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **(docx): Trim equation LaTeX.**
+- **(docx, pptx): Trim equation LaTeX.**
   An inline equation read `$\alpha $`, which Markdown does not take as math, and its entry in `formulas` kept the
-  space. The converter's result is now trimmed for every consumer, and an equation holding only whitespace adds nothing.
-  Plain-text output keeps a space between an equation ending in a command such as `\alpha` and a letter after it.
-- **(docx): Write equation limits and function names as the MathML converter does.**
+  space. The OMML converter's result is now trimmed for every consumer, each line of a display equation on its own,
+  and an equation or line holding only whitespace adds nothing. PowerPoint already trimmed a whole equation, so
+  there only display equations of several lines change. A Word document's per-page content in Plain and JSON
+  output writes an inline equation without delimiters, and there an equation ending in a command such as `\alpha`
+  keeps a space before a letter that follows it. (#2123, #2241)
+- **(docx, pptx): Write equation limits and function names as the MathML converter does.**
   `lim` with its limit read `\mathrm{\underset{n\rightarrow \infty }{lim}}{f(x)}`. A limit under or over a
   limit-taking name or big operator now reads `\lim_{n\rightarrow \infty }`, function names use the shared table
   (adding `\arcsin`, `\coth`, `\lg`, `\liminf`, `\Pr` and others), and an integral whose `m:limLoc` is `undOvr`
-  takes `\limits`.
+  takes `\limits`. PowerPoint equations share the converter and change the same way. (#2241)
 - **(odt): Keep an inline formula object in its sentence, and the formulas of headings.**
   A formula frame anchored as a character was written as a formula block ahead of its paragraph. In a paragraph
   with text of its own it is now written where it sits as `$...$`, with an `xberg.math` annotation, and listed in
-  `formulas`; a formula alone in its paragraph, or in a list item, footnote, comment or text box, is still a formula
-  block. A formula in a heading, which was lost, is now a formula block after the heading. Formula LaTeX is
-  trimmed, and a formula holding only whitespace adds nothing. Annotations of a paragraph with leading whitespace
-  now line up with its trimmed text.
+  `formulas`. A formula alone in its paragraph or beside only its number, such as `(1)`, or one in a list item,
+  footnote, comment or a text box inside a paragraph, is still a formula block; the paragraphs of a page-anchored
+  text box follow the same rule as body paragraphs. A formula in a heading, which was lost, is now a formula block
+  after the heading. Formula LaTeX is trimmed, and a formula holding only whitespace adds nothing. Annotations of
+  a paragraph with leading whitespace now line up with its trimmed text. (#2123, #2241)
 - **(docx): Keep display equations in heading and quote paragraphs.**
   An `m:oMathPara` in a heading or quote paragraph that also held text was dropped, a heading holding only an
   equation kept it as heading text that `formulas` did not list, and a quote holding only an equation came out
+  empty. The equation is now a formula block after its heading or inside its quote, so a heading holding only an
+  equation is no longer a heading node, and a bookmark on a paragraph holding only display math resolves to the
+  equation. (#2241)
   empty. The equation is now a formula block after its heading or inside its quote, and a bookmark on a paragraph
   holding only display math resolves to the equation.
 - **(pdf): A table model that fails to load in the per-page table pass now warns too.**

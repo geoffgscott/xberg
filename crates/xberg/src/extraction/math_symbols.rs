@@ -80,6 +80,7 @@ fn trailing_control_word(latex: &str) -> Option<usize> {
 /// Whether `next` needs a space after `latex`: a letter right after a trailing control word would
 /// read as one longer command (`\alpha` then `b` is `\alphab`). Any letter counts, since XeTeX and
 /// LuaTeX read non-ASCII letters into a control word too.
+#[cfg(feature = "office")]
 pub(crate) fn needs_space_after_latex(latex: &str, next: &str) -> bool {
     trailing_control_word(latex).is_some() && next.starts_with(char::is_alphabetic)
 }
@@ -297,7 +298,8 @@ pub(crate) fn operator_name_to_latex(name: &str) -> Option<(&'static str, bool)>
         "inf" => ("\\inf", true),
         "det" => ("\\det", true),
         "gcd" => ("\\gcd", true),
-        // Only presentation MathML reaches this case-sensitive arm; content names arrive lowercased.
+        // Content MathML names arrive lowercased, so only presentation MathML and OMML reach this
+        // case-sensitive arm. ~keep
         "Pr" => ("\\Pr", true),
         "sin" => ("\\sin", false),
         "cos" => ("\\cos", false),
