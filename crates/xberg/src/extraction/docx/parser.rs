@@ -7420,7 +7420,7 @@ mod tests {
         }
     }
 
-    fn math_run(latex: &str, display: bool) -> Run {
+    fn cell_math_run(latex: &str, display: bool) -> Run {
         Run {
             math_latex: Some((latex.to_string(), display)),
             ..Default::default()
@@ -7448,43 +7448,47 @@ mod tests {
             (
                 vec![paragraph_of(vec![
                     Run::new("\u{E9}t\u{E9} ".into()),
-                    math_run("x", false),
+                    cell_math_run("x", false),
                 ])],
                 &[("$x$", false)],
             ),
             (
                 vec![
                     paragraph_of(vec![Run::new("\u{E9}t\u{E9}".into())]),
-                    paragraph_of(vec![Run::new("see ".into()), math_run("y", false)]),
+                    paragraph_of(vec![Run::new("see ".into()), cell_math_run("y", false)]),
                 ],
                 &[("$y$", false)],
             ),
             (
                 vec![paragraph_of(vec![
                     Run::new("  ".into()),
-                    math_run("z", false),
+                    cell_math_run("z", false),
                     Run::new(" ".into()),
                 ])],
                 &[("$z$", false)],
             ),
             (
-                vec![paragraph_of(vec![bold, Run::new(" ".into()), math_run("A", false)])],
+                vec![paragraph_of(vec![
+                    bold,
+                    Run::new(" ".into()),
+                    cell_math_run("A", false),
+                ])],
                 &[("$A$", false)],
             ),
             (
-                vec![paragraph_of(vec![math_run("x", false), math_run("y", false)])],
+                vec![paragraph_of(vec![cell_math_run("x", false), cell_math_run("y", false)])],
                 &[("$x$", false), ("$y$", false)],
             ),
             (
                 vec![paragraph_of(vec![
-                    math_run("", false),
+                    cell_math_run("", false),
                     Run::new("k ".into()),
-                    math_run(" ", false),
+                    cell_math_run(" ", false),
                 ])],
                 &[("$ $", false)],
             ),
             (
-                vec![paragraph_of(vec![math_run("a \\\\ b", true)])],
+                vec![paragraph_of(vec![cell_math_run("a \\\\ b", true)])],
                 &[("$$a \\\\ b$$", true)],
             ),
         ];

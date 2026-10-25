@@ -5555,7 +5555,7 @@ mod tests {
         format!("<w:tc><w:p>{content}</w:p></w:tc>")
     }
 
-    async fn extract_math_docx(data: &[u8]) -> crate::types::extraction::ExtractedDocument {
+    async fn extract_table_math_docx(data: &[u8]) -> crate::types::extraction::ExtractedDocument {
         let internal = extract_docx_internal_document(data).await;
         crate::extraction::derive::derive_extraction_result(internal, true, crate::core::config::OutputFormat::Markdown)
     }
@@ -5613,20 +5613,20 @@ mod tests {
             table_cell(&text_run("Area")),
             table_cell(&omath("&#945;")),
         ));
-        let result = extract_math_docx(&build_test_docx(&xml)).await;
+        let result = extract_table_math_docx(&build_test_docx(&xml)).await;
 
         let markdown = rendered_markdown(&result);
-        assert!(markdown.contains("| Area | $`\\alpha `$ |"), "{markdown}");
+        assert!(markdown.contains("| Area | $`\\alpha`$ |"), "{markdown}");
         assert!(!markdown.contains("$\\\\alpha"), "{markdown}");
         assert_eq!(
             reparsed_cell_math(markdown),
-            [[vec![], vec![]], [vec![], vec!["\\alpha "]]]
+            [[vec![], vec![]], [vec![], vec!["\\alpha"]]]
         );
 
         let table = &result.tables[0];
         let annotation = crate::types::TextAnnotation {
             start: 0,
-            end: "$\\alpha $".len() as u32,
+            end: "$\\alpha$".len() as u32,
             kind: crate::types::AnnotationKind::math(false),
         };
         assert_eq!(
@@ -5637,7 +5637,7 @@ mod tests {
                 annotation: annotation.clone(),
             }]
         );
-        assert_eq!(cell_math_spans(table), [(1, 1, "$\\alpha $", Some(false))]);
+        assert_eq!(cell_math_spans(table), [(1, 1, "$\\alpha$", Some(false))]);
 
         let document = result.document.as_ref().expect("document structure requested");
         let grid = document
@@ -5662,7 +5662,7 @@ mod tests {
             payload["tables"][0]["cell_annotations"],
             serde_json::json!([{
                 "row": 1, "col": 1,
-                "annotation": {"start": 0, "end": 9,
+                "annotation": {"start": 0, "end": 8,
                     "kind": {"annotation_type": "custom", "name": "xberg.math", "value": "inline"}},
             }])
         );
@@ -5688,7 +5688,7 @@ mod tests {
             b = plain("b"),
             c = plain("c"),
         ));
-        let result = extract_math_docx(&build_test_docx(&xml)).await;
+        let result = extract_table_math_docx(&build_test_docx(&xml)).await;
 
         let table = &result.tables[0];
         assert_eq!(
@@ -5731,7 +5731,7 @@ mod tests {
             b = omath("B"),
         ));
         let data = build_test_docx_with_parts(&xml, None, Some(NOTE_A_B_FOOTNOTES), None, None, None, None);
-        let result = extract_math_docx(&data).await;
+        let result = extract_table_math_docx(&data).await;
 
         let table = &result.tables[0];
         assert_eq!(
@@ -5775,7 +5775,7 @@ mod tests {
             table_cell(&omath("h"))
         );
         let data = build_test_docx_with_parts(&body, None, None, None, Some(&header), None, None);
-        let result = extract_math_docx(&data).await;
+        let result = extract_table_math_docx(&data).await;
 
         let body_table = result
             .tables
@@ -5816,7 +5816,7 @@ mod tests {
             inner = table_cell(&format!("{}{}", text_run("in "), omath("x"))),
             after = table_cell(&omath("y")),
         ));
-        let result = extract_math_docx(&build_test_docx(&xml)).await;
+        let result = extract_table_math_docx(&build_test_docx(&xml)).await;
 
         let table = &result.tables[0];
         assert_eq!(table.cells, [["outer in $x$", "$y$"]]);
@@ -5833,7 +5833,7 @@ mod tests {
             table_cell(&text_run("Widget")),
             table_cell(&text_run("$5 | each")),
         ));
-        let result = extract_math_docx(&build_test_docx(&xml)).await;
+        let result = extract_table_math_docx(&build_test_docx(&xml)).await;
 
         assert!(result.tables[0].cell_annotations.is_empty());
         let json = serde_json::to_string(&result).expect("serialize the extraction");
