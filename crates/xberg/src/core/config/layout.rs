@@ -189,19 +189,6 @@ pub struct LayoutDetectionConfig {
     #[serde(default)]
     pub strategy: LayoutStrategy,
 
-    /// Run the layout model only on these PDF pages (1-indexed).
-    ///
-    /// When set, the list decides instead of `strategy`: a listed page is
-    /// selected for layout and, if it renders, runs the model whenever a
-    /// layout pass runs (`use_layout_for_markdown` or an OCR layout pass), and
-    /// every unlisted page is skipped the way `Auto` skips a page. An empty
-    /// list runs the model on no page, while `None` leaves the choice to
-    /// `strategy`. Order and duplicates do not matter; 0 and pages past the end
-    /// of the document are ignored with a warning. Only applies to PDF
-    /// documents.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pages: Option<Vec<u32>>,
-
     /// Confidence threshold override (None = use model default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence_threshold: Option<f32>,
@@ -250,13 +237,25 @@ pub struct LayoutDetectionConfig {
     /// opt-in and has no effect on standard text/table extraction scores.
     #[serde(default)]
     pub enable_chart_understanding: bool,
+
+    /// Run the layout model only on these PDF pages (1-indexed).
+    ///
+    /// When set, the list decides instead of `strategy`: a listed page is
+    /// selected for layout and, if it renders, runs the model whenever a
+    /// layout pass runs (`use_layout_for_markdown` or an OCR layout pass), and
+    /// every unlisted page is skipped the way `Auto` skips a page. An empty
+    /// list runs the model on no page, while `None` leaves the choice to
+    /// `strategy`. Order and duplicates do not matter; 0 and pages past the end
+    /// of the document are ignored with a warning. Only applies to PDF
+    /// documents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<Vec<u32>>,
 }
 
 impl Default for LayoutDetectionConfig {
     fn default() -> Self {
         Self {
             strategy: LayoutStrategy::default(),
-            pages: None,
             confidence_threshold: None,
             apply_heuristics: true,
             table_model: TableModel::default(),
@@ -264,6 +263,7 @@ impl Default for LayoutDetectionConfig {
             table_overlap_preference: TableOverlapPreference::default(),
             acceleration: None,
             enable_chart_understanding: false,
+            pages: None,
         }
     }
 }

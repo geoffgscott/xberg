@@ -762,10 +762,61 @@ mod tests {
         );
     }
 
+    /// Capture what `body` logs at WARN on this thread.
+    fn warnings_from(body: impl FnOnce()) -> String {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct Capture(Arc<Mutex<Vec<u8>>>);
+
+        impl std::io::Write for Capture {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer poisoned").write_all(buf)?;
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let capture = Capture(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(move || capture.clone())
+            .finish();
+        // A callsite first reached on a thread with no subscriber is otherwise cached as
+        // never-interested for the whole process, which would hide the warning from this
+        // capture (the same race the `cache` log tests close, #301).
+        crate::pdf::render::install_pdf_render_diagnostics();
+        tracing::subscriber::with_default(subscriber, body);
+        let logs = buffer.lock().expect("log buffer poisoned").clone();
+        String::from_utf8(logs).expect("log output must be UTF-8")
+    }
+
     #[test]
-    fn pages_outside_the_document_are_the_ones_warned_about() {
-        assert_eq!(pages_outside_document(&[9, 0, 2, 9, 0], 3), vec![0, 9]);
-        assert_eq!(pages_outside_document(&[3, 1, 2], 3), Vec::<u32>::new());
+    fn pages_outside_the_document_are_warned_about_once_by_number() {
+        let logs = warnings_from(|| {
+            listed_page_decisions(&[9, 0, 2, 9, 0], 3);
+        });
+        assert_eq!(
+            logs.matches("layout.pages lists pages the document does not have")
+                .count(),
+            1,
+            "logs were:\n{logs}"
+        );
+        assert!(logs.contains("missing=[0, 9]"), "logs were:\n{logs}");
+        assert!(logs.contains("page_count=3"), "logs were:\n{logs}");
+    }
+
+    #[test]
+    fn pages_inside_the_document_log_no_warning() {
+        let logs = warnings_from(|| {
+            listed_page_decisions(&[3, 1, 2, 3], 3);
+        });
+        assert_eq!(logs, "");
     }
 
     #[test]
