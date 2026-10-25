@@ -453,16 +453,13 @@ pub(crate) fn decide_pages(doc: &PdfDocument, page_count: usize) -> Vec<PageGate
 /// nothing and are warned about once; order and duplicates do not matter.
 pub(crate) fn listed_page_decisions(pages: &[u32], page_count: usize) -> Vec<PageGateDecision> {
     let mut listed = vec![false; page_count];
-    let mut missing: Vec<u32> = Vec::new();
     for &page in pages {
-        match (page as usize).checked_sub(1).and_then(|index| listed.get_mut(index)) {
-            Some(slot) => *slot = true,
-            None => missing.push(page),
+        if let Some(slot) = (page as usize).checked_sub(1).and_then(|index| listed.get_mut(index)) {
+            *slot = true;
         }
     }
+    let missing = pages_outside_document(pages, page_count);
     if !missing.is_empty() {
-        missing.sort_unstable();
-        missing.dedup();
         tracing::warn!(
             ?missing,
             page_count,
@@ -480,6 +477,18 @@ pub(crate) fn listed_page_decisions(pages: &[u32], page_count: usize) -> Vec<Pag
             },
         })
         .collect()
+}
+
+/// The listed pages the document does not have (0, or past the last page), sorted and deduplicated.
+fn pages_outside_document(pages: &[u32], page_count: usize) -> Vec<u32> {
+    let mut missing: Vec<u32> = pages
+        .iter()
+        .copied()
+        .filter(|&page| page == 0 || page as usize > page_count)
+        .collect();
+    missing.sort_unstable();
+    missing.dedup();
+    missing
 }
 
 #[cfg(test)]
@@ -751,6 +760,12 @@ mod tests {
             listed(&listed_page_decisions(&[0, 2], 1)),
             vec![(false, "unlisted_page")]
         );
+    }
+
+    #[test]
+    fn pages_outside_the_document_are_the_ones_warned_about() {
+        assert_eq!(pages_outside_document(&[9, 0, 2, 9, 0], 3), vec![0, 9]);
+        assert_eq!(pages_outside_document(&[3, 1, 2], 3), Vec::<u32>::new());
     }
 
     #[test]

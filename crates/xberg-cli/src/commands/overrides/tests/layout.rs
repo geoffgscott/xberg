@@ -107,6 +107,17 @@ fn test_layout_pages_parsed_and_applied_alongside_strategy() {
 
 #[cfg(feature = "layout-detection")]
 #[test]
+fn test_layout_pages_alone_enables_layout() {
+    let overrides = parse_overrides(&["--layout-pages", "2"]).expect("valid flags");
+    overrides.validate().expect("a page list on its own is valid");
+    let mut config = ExtractionConfig::default();
+    overrides.apply(&mut config);
+    let layout = config.layout.expect("--layout-pages alone enables layout");
+    assert_eq!(layout.pages, Some(vec![2]));
+}
+
+#[cfg(feature = "layout-detection")]
+#[test]
 fn test_layout_pages_rejects_non_numeric_entries() {
     for value in ["1-3", "a", "1,x", "4294967296"] {
         let error = match parse_overrides(&["--layout-pages", value]) {
