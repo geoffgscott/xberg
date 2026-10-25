@@ -702,3 +702,13 @@ mod cache_key_tests {
     feature = "tokio-runtime"
 ))]
 mod auto_gate_vlm_region_tests;
+
+#[cfg(test)]
+#[cfg(all(
+    feature = "pdf",
+    feature = "layout-detection",
+    feature = "ocr",
+    feature = "liter-llm",
+    feature = "tokio-runtime"
+))]
+mod region_replace_native_paragraph_tests;

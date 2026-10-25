@@ -62,18 +62,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **(pdf): A table model that fails to load in the per-page table pass now warns too.**
   When the table model passed the availability check but could not be loaded for a page, that page's tables were
-  dropped with no warning; they are now read from the page text and a `pdf_tables` processing warning says the
-  named model could not be loaded.
+  dropped with no processing warning; they are now read from the page text and a `pdf_tables` processing warning says
+  the named model could not be loaded.
 - **(pdf): A VLM answer for a table or unclassified layout region replaces the native table text inside it.**
   With VLM regions on, the answer was spliced in beside the native table and text it transcribed, so the table printed
-  twice. Table elements and body paragraphs mostly inside the region are now removed from the document elements first,
-  with any group the removal empties and any page break it leaves leading or doubled. A paragraph linked as a caption
-  stays; other paragraphs inside the region, an unlinked caption included, are replaced, because the region's image is
-  what the VLM transcribed. A figure's description is still only added, a failed or empty answer changes nothing, and
-  the `tables` list keeps the native table. There is no check on the answer itself, so a wrong but non-empty answer
-  replaces the region's table text. On the flat path, paragraphs carry no position, so only a table element that has a
-  bounding box is replaced; table text already in the flat paragraphs is not removed, so the answer is added beside it
-  there.
+  twice. When the PDF is built as a structured document (Markdown, Djot, HTML, DocTags and the formats built from
+  Markdown, or any format once hierarchy, `include_document_structure`, a content filter or inline-image OCR is on),
+  table elements and body paragraphs at least 60% inside the region are now removed first, with any group the removal
+  empties and any page break it leaves leading or doubled, and the answer takes the place and depth of the content it
+  replaced. A paragraph linked as a caption stays; other paragraphs inside the region, an unlinked caption included,
+  are replaced, because the region's image is what the VLM transcribed. A figure's description is still only added, a
+  failed or empty answer changes nothing, and the `tables` list keeps the native table. Known limits: otherwise Plain
+  and Json output take the flat path, whose paragraphs carry no position, so the paragraphs stay and the answer goes
+  after the page's last element (at the end of the document, after a page break, when the paragraphs carry no page);
+  the only element the flat path can replace is a table element it added for a detected table whose cells are not
+  already in the page text, which Json output adds and Plain output on native text never does. With
+  `include_bbox: false`, paragraph boxes are dropped before the replacement runs, so paragraphs stay; a table element
+  whose table has a box is still replaced, and otherwise the answer goes after the page's last element. When the
+  structured pass falls back to the page text (it lost over 30% of the native text, produced nothing, or failed), the
+  flat path's limits apply. In builds with OCR, a document with any rotated page drops its layout images before the
+  region pass, so no region reaches the VLM; otherwise the region and the text are compared as if in one page frame,
+  so on a rotated page, or one whose MediaBox does not start at the origin, a region can miss the text it covers.
+  There is no check on the answer itself, so a wrong but non-empty answer replaces the table text and the covered
+  paragraphs.
 - **(html): Read a page that is not UTF-8 in the encoding its byte order mark or `<meta>` declares.**
   Every non-UTF-8 page was decoded as UTF-8, so a `<meta charset>` or `<meta http-equiv>` declaration was ignored
   and each non-ASCII character of a windows-1252, Latin-1 or Shift_JIS page became U+FFFD, with a lossy-decode
