@@ -58,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(pdf): A VLM answer for a table or unclassified layout region replaces the native table text inside it.**
+  With VLM regions on, the answer was spliced in beside the native table and text it transcribed, so the table printed
+  twice. Table elements and body paragraphs mostly inside the region are now removed from the document elements first,
+  with any group the removal empties and any page break it leaves leading or doubled. A paragraph linked as a caption
+  stays; other paragraphs inside the region, an unlinked caption included, are replaced, because the region's image is
+  what the VLM transcribed. A figure's description is still only added, a failed or empty answer changes nothing, and
+  the `tables` list keeps the native table. There is no check on the answer itself, so a wrong but non-empty answer
+  replaces the region's table text. On the flat path, paragraphs carry no position, so only a table element that has a
+  bounding box is replaced; table text already in the flat paragraphs is not removed, so the answer is added beside it
+  there.
 - **(html): Read a page that is not UTF-8 in the encoding its byte order mark or `<meta>` declares.**
   Every non-UTF-8 page was decoded as UTF-8, so a `<meta charset>` or `<meta http-equiv>` declaration was ignored
   and each non-ASCII character of a windows-1252, Latin-1 or Shift_JIS page became U+FFFD, with a lossy-decode
