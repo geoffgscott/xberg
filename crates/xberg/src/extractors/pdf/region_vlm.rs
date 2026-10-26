@@ -422,7 +422,8 @@ fn take_if_carried(
 
 /// `answer` with every cell separator turned into a space, so the word count sees the cells of a compact
 /// pipe table (`|a|b|`), of `<br>` line breaks and of an HTML table as the native table's words.
-/// A tag is `<` followed by a letter, `/` or `!` up to the next `>`; any other `<` stays text.
+/// A tag is `<` followed by a letter, `/` or `!` up to the next `>`; any other `<` stays text. The scan
+/// moves forward only, so the cost is linear in the answer's length.
 fn answer_text_for_words(answer: &str) -> String {
     let mut text = String::with_capacity(answer.len());
     let mut rest = answer;
@@ -430,16 +431,19 @@ fn answer_text_for_words(answer: &str) -> String {
         text.push_str(&rest[..open]);
         let tail = &rest[open + 1..];
         let starts_tag = tail.starts_with(|c: char| c.is_ascii_alphabetic() || c == '/' || c == '!');
-        match tail.find('>') {
-            Some(close) if starts_tag => {
-                text.push(' ');
-                rest = &tail[close + 1..];
-            }
-            _ => {
-                text.push('<');
-                rest = tail;
-            }
+        if !starts_tag {
+            text.push('<');
+            rest = tail;
+            continue;
         }
+        let Some(close) = tail.find('>') else {
+            // No `>` remains, so no later tag can close: keep the rest as text, in one forward scan.
+            text.push('<');
+            rest = tail;
+            break;
+        };
+        text.push(' ');
+        rest = &tail[close + 1..];
     }
     text.push_str(rest);
     text.replace('|', " ")

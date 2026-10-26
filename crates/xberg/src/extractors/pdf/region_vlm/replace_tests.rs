@@ -636,6 +636,24 @@ fn should_replace_a_native_table_with_an_otsl_table_answer() {
     assert_eq!(texts_after_answer_over_table(cells, answer), [answer]);
 }
 
+/// A degenerate answer can be a million `<` with no `>`; the word split must take linear time on it.
+#[test]
+fn should_split_an_answer_of_unclosed_angle_brackets_in_linear_time() {
+    for unit in ["<", "<a"] {
+        let answer = format!("{} north america", unit.repeat(1_000_000 / unit.len()));
+
+        let started = std::time::Instant::now();
+        let text = answer_text_for_words(&answer);
+        let elapsed = started.elapsed();
+
+        assert!(elapsed.as_secs() < 5, "{unit:?} run took {elapsed:?}");
+        assert_eq!(text, answer, "no tag was closed, so nothing changes");
+        let words = super::super::token_multiset([text.as_str()]);
+        assert_eq!(words.get("america"), Some(&1));
+        assert_eq!(words.get("north"), Some(&1));
+    }
+}
+
 #[test]
 fn should_replace_a_paragraph_missing_one_word_only_when_it_has_ten_or_more() {
     let long = "one two three four five six seven eight nine ten";
