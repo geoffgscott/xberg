@@ -570,7 +570,10 @@ fn should_replace_a_native_table_only_when_the_answer_carries_nine_tenths_of_its
 fn texts_after_answer_over_table(cells: [[&str; 4]; 3], answer: &str) -> Vec<String> {
     let mut document = InternalDocument::default();
     let table = table_at(&mut document, 1, "native", 340.0, 580.0);
-    document.tables[0].cells = cells.iter().map(|row| row.iter().map(ToString::to_string).collect()).collect();
+    document.tables[0].cells = cells
+        .iter()
+        .map(|row| row.iter().map(ToString::to_string).collect())
+        .collect();
     document.elements.push(table);
 
     inject_region_results(
