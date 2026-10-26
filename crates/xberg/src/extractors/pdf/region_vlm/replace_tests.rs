@@ -104,7 +104,7 @@ fn should_replace_native_content_inside_table_and_other_regions_with_the_answer(
             &mut document,
             vec![region_result(
                 0,
-                "VLM row read as text",
+                "VLM native-1 row read as text",
                 region_hint(class_name, 300.0, 600.0),
             )],
         );
@@ -113,7 +113,7 @@ fn should_replace_native_content_inside_table_and_other_regions_with_the_answer(
             texts(&document),
             [
                 "caption",
-                "VLM row read as text",
+                "VLM native-1 row read as text",
                 "below",
                 "break",
                 "table:| native-2 |"
@@ -173,14 +173,18 @@ fn should_keep_elements_and_tables_mostly_outside_the_region() {
         &mut document,
         vec![region_result(
             0,
-            "half inside mostly inside",
+            "straddling half inside mostly inside",
             region_hint(LayoutHintClass::Table, 300.0, 600.0),
         )],
     );
 
     assert_eq!(
         texts(&document),
-        ["table:| straddling |", "half inside", "half inside mostly inside"],
+        [
+            "table:| straddling |",
+            "half inside",
+            "straddling half inside mostly inside"
+        ],
         "a table 58% inside and a paragraph 50% inside stay; one 70% inside goes"
     );
 }
@@ -270,7 +274,7 @@ fn should_put_a_replacing_answer_before_a_list_that_follows_the_table() {
         &mut document,
         vec![region_result(
             0,
-            "VLM TABLE",
+            "VLM native",
             region_hint(LayoutHintClass::Table, 300.0, 600.0),
         )],
     );
@@ -279,7 +283,7 @@ fn should_put_a_replacing_answer_before_a_list_that_follows_the_table() {
         kinds_and_texts(&document),
         [
             "paragraph:above",
-            "paragraph:VLM TABLE",
+            "paragraph:VLM native",
             "list_start:",
             "list_item:one",
             "list_end:",
@@ -288,7 +292,7 @@ fn should_put_a_replacing_answer_before_a_list_that_follows_the_table() {
     );
     assert_eq!(
         crate::rendering::render_markdown(&document),
-        "above\n\nVLM TABLE\n\n- one\n\nbelow\n"
+        "above\n\nVLM native\n\n- one\n\nbelow\n"
     );
 }
 
@@ -304,7 +308,7 @@ fn should_put_a_replacing_answer_before_a_group_that_follows_the_table() {
         &mut document,
         vec![region_result(
             0,
-            "VLM TABLE",
+            "VLM native",
             region_hint(LayoutHintClass::Table, 300.0, 600.0),
         )],
     );
@@ -313,7 +317,7 @@ fn should_put_a_replacing_answer_before_a_group_that_follows_the_table() {
         kinds_and_texts(&document),
         [
             "paragraph:above",
-            "paragraph:VLM TABLE",
+            "paragraph:VLM native",
             "group_start:",
             "paragraph:grouped",
             "group_end:",
@@ -346,13 +350,13 @@ fn should_keep_a_table_split_evenly_between_two_regions() {
     inject_region_results(
         &mut document,
         vec![
-            region_result(0, "UPPER", region_hint(LayoutHintClass::Table, 460.0, 600.0)),
-            region_result(0, "LOWER", region_hint(LayoutHintClass::Table, 300.0, 460.0)),
+            region_result(0, "UPPER split", region_hint(LayoutHintClass::Table, 460.0, 600.0)),
+            region_result(0, "LOWER split", region_hint(LayoutHintClass::Table, 300.0, 460.0)),
         ],
     );
     assert_eq!(
         texts(&document),
-        ["UPPER", "table:| split |", "LOWER"],
+        ["UPPER split", "table:| split |", "LOWER split"],
         "a table split evenly between two regions belongs to neither"
     );
 }
@@ -428,7 +432,7 @@ fn should_replace_only_the_paragraphs_whose_words_the_answer_carries() {
     document
         .elements
         .push(paragraph_at(1, "Source: Statistics Office", 310.0, 330.0));
-    let answer = "| Item | Total |\n| --- | --- |\n| North | 42 |";
+    let answer = "| Item | Total |\n| --- | --- |\n| North | 42 |\n| native | |";
 
     inject_region_results(
         &mut document,
@@ -442,7 +446,7 @@ fn should_replace_only_the_paragraphs_whose_words_the_answer_carries() {
     assert_eq!(
         texts(&document),
         [answer, "Item Total units", "Source: Statistics Office"],
-        "a paragraph goes only when the answer carries every one of its words"
+        "a paragraph of under ten words goes only when the answer carries every one of them"
     );
 }
 
@@ -485,6 +489,105 @@ fn should_keep_a_title_whose_words_are_only_the_tables_cells() {
         texts(&document),
         ["Revenue", answer],
         "the table's cells spend the answer's words first"
+    );
+}
+
+#[test]
+fn should_keep_a_native_table_beside_a_degenerate_answer() {
+    let mut document = InternalDocument::default();
+    let table = table_at(&mut document, 1, "native", 340.0, 580.0);
+    document.elements.push(table);
+    document.elements.push(paragraph_at(1, "below", 100.0, 200.0));
+
+    inject_region_results(
+        &mut document,
+        vec![region_result(
+            0,
+            "| 0000000000 |",
+            region_hint(LayoutHintClass::Table, 300.0, 600.0),
+        )],
+    );
+
+    assert_eq!(texts(&document), ["| 0000000000 |", "table:| native |", "below"]);
+}
+
+const CELL_WORDS: [&str; 10] = [
+    "north", "south", "east", "west", "units", "total", "2023", "2024", "12", "40",
+];
+
+#[test]
+fn should_keep_a_native_table_the_answer_misses_and_replace_a_paragraph_it_carries() {
+    let mut document = InternalDocument::default();
+    let table = table_at(&mut document, 1, "native", 500.0, 580.0);
+    document.elements.push(table);
+    document.elements.push(paragraph_at(1, "North 42", 400.0, 420.0));
+    let answer = "| North | 42 |";
+
+    inject_region_results(
+        &mut document,
+        vec![region_result(
+            0,
+            answer,
+            region_hint(LayoutHintClass::Table, 300.0, 600.0),
+        )],
+    );
+
+    assert_eq!(
+        texts(&document),
+        ["table:| native |", answer],
+        "the answer takes the paragraph's slot"
+    );
+}
+
+#[test]
+fn should_replace_a_native_table_only_when_the_answer_carries_nine_tenths_of_its_cell_words() {
+    for (carried, replaced) in [(9, true), (8, false)] {
+        let mut document = InternalDocument::default();
+        let table = table_at(&mut document, 1, "ten", 340.0, 580.0);
+        document.tables[0].cells = CELL_WORDS
+            .chunks(5)
+            .map(|row| row.iter().map(ToString::to_string).collect())
+            .collect();
+        document.elements.push(table);
+        let answer = CELL_WORDS[..carried].join(" | ");
+
+        inject_region_results(
+            &mut document,
+            vec![region_result(
+                0,
+                &answer,
+                region_hint(LayoutHintClass::Table, 300.0, 600.0),
+            )],
+        );
+
+        let kept = (!replaced).then(|| "table:| ten |".to_string());
+        let expected: Vec<String> = std::iter::once(answer).chain(kept).collect();
+        assert_eq!(texts(&document), expected, "{carried} of 10 cell words");
+    }
+}
+
+#[test]
+fn should_replace_a_paragraph_missing_one_word_only_when_it_has_ten_or_more() {
+    let long = "one two three four five six seven eight nine ten";
+    let short = "red green blue cyan pink";
+    let mut document = InternalDocument::default();
+    document.elements.push(paragraph_at(1, long, 450.0, 550.0));
+    document.elements.push(paragraph_at(1, short, 350.0, 420.0));
+    let answer = "one two three four five six seven eight nine red green blue cyan";
+
+    inject_region_results(
+        &mut document,
+        vec![region_result(
+            0,
+            answer,
+            region_hint(LayoutHintClass::Table, 300.0, 600.0),
+        )],
+    );
+
+    assert_eq!(
+        texts(&document),
+        [answer, short],
+        "9 of 10 words is enough, 4 of 5 is not"
     );
 }
 
@@ -552,7 +655,7 @@ fn should_replace_only_tables_and_body_paragraphs_inside_the_region() {
         target: RelationshipTarget::Index(0),
         kind: RelationshipKind::Caption,
     });
-    let answer = "cell text heading caption E = mc^2 footer item";
+    let answer = "native cell text heading caption E = mc^2 footer item";
 
     inject_region_results(
         &mut document,
@@ -625,8 +728,8 @@ fn should_keep_one_break_on_each_side_of_a_page_the_answer_empties() {
     middle.elements.push(table);
     middle.elements.push(page_break());
     middle.elements.push(paragraph_at(3, "third", 100.0, 200.0));
-    inject_region_results(&mut middle, vec![region_result(1, "VLM", hint())]);
-    assert_eq!(texts(&middle), ["first", "break", "VLM", "break", "third"]);
+    inject_region_results(&mut middle, vec![region_result(1, "VLM middle", hint())]);
+    assert_eq!(texts(&middle), ["first", "break", "VLM middle", "break", "third"]);
     assert_eq!(middle.elements[2].page, Some(2));
 
     let mut leading = InternalDocument::default();
@@ -634,16 +737,16 @@ fn should_keep_one_break_on_each_side_of_a_page_the_answer_empties() {
     leading.elements.push(table);
     leading.elements.push(page_break());
     leading.elements.push(paragraph_at(2, "second", 100.0, 200.0));
-    inject_region_results(&mut leading, vec![region_result(0, "VLM", hint())]);
-    assert_eq!(texts(&leading), ["VLM", "break", "second"]);
+    inject_region_results(&mut leading, vec![region_result(0, "VLM leading", hint())]);
+    assert_eq!(texts(&leading), ["VLM leading", "break", "second"]);
 
     let mut trailing = InternalDocument::default();
     let table = table_at(&mut trailing, 2, "trailing", 340.0, 580.0);
     trailing.elements.push(paragraph_at(1, "first", 100.0, 200.0));
     trailing.elements.push(page_break());
     trailing.elements.push(table);
-    inject_region_results(&mut trailing, vec![region_result(1, "VLM", hint())]);
-    assert_eq!(texts(&trailing), ["first", "break", "VLM"]);
+    inject_region_results(&mut trailing, vec![region_result(1, "VLM trailing", hint())]);
+    assert_eq!(texts(&trailing), ["first", "break", "VLM trailing"]);
 }
 
 fn table_region_llm_config(base_url: String) -> LlmConfig {
