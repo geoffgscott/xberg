@@ -99,6 +99,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   When the table model passed the availability check but could not be loaded for a page, that page's tables were
   dropped with no processing warning; they are now read from the page text and a `pdf_tables` processing warning says
   the named model could not be loaded.
+- **(ocr, pdf): A table model that cannot be loaded on the OCR routes now warns.**
+  With layout detection on and the TATR model unavailable, a table detected on a standalone image or on a PDF page
+  the OCR routes read (`force_ocr`, `force_ocr_pages` or a page the mixed route OCRs) lost its structure with no
+  processing warning; a `pdf_tables` processing warning, once per document, now says table structure recognition
+  was skipped.
 - **(pdf): A VLM answer for a table or unclassified layout region replaces the native table text inside it.**
   With VLM regions on, the answer was spliced in beside the native table and text it transcribed, so the table printed
   twice. When the PDF is built as a structured document (Markdown, Djot, HTML, DocTags and the formats built from

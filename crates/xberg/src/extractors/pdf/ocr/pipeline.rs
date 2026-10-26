@@ -118,6 +118,31 @@ pub(super) fn pdf_ocr_table_recognition_enabled(config: &ExtractionConfig) -> bo
         .is_none_or(|layout| layout.table_model != crate::core::config::layout::TableModel::Disabled)
 }
 
+/// The warning for a page whose layout found a table while TATR could not be checked out.
+///
+/// ~keep This route has no heuristic table fallback, so without it the table's words stay in the
+/// page's paragraphs and the caller never learns that table recognition was skipped. The cfg is
+/// the single call site's: the per-page block (`any(ocr, ocr-wasm)`) inside
+/// `extract_with_ocr_for_page` (`any(ocr, ocr-pipeline)`).
+#[cfg(all(
+    feature = "layout-detection",
+    any(feature = "ocr", feature = "ocr-wasm"),
+    any(feature = "ocr", feature = "ocr-pipeline")
+))]
+pub(super) fn ocr_table_model_warning(
+    detection: Option<&crate::layout::DetectionResult>,
+    tatr_unavailable: bool,
+) -> Option<crate::types::ProcessingWarning> {
+    let has_table_region = detection.is_some_and(|detection| {
+        detection
+            .detections
+            .iter()
+            .any(|region| region.class_name == crate::layout::LayoutClass::Table)
+    });
+    (tatr_unavailable && has_table_region)
+        .then(|| crate::pdf::structure::pipeline::table_model_unavailable_warning("TATR"))
+}
+
 /// GH#1789's numeric-token repair, applied to every string representation of an OCR'd page that
 /// `merge_structured_ocr_pages_into_internal_document` carries into the final document.
 ///
@@ -3438,6 +3463,15 @@ pub(super) async fn extract_with_ocr_for_page(
                             ),
                         },
                     );
+                }
+
+                // The checkout above runs once and every page hands its lease back, so a `None`
+                // here with recognition enabled means the model could not be loaded. ~keep
+                if let Some(warning) = ocr_table_model_warning(
+                    render_scaled_detection.as_ref(),
+                    tatr_model.is_none() && pdf_ocr_table_recognition_enabled(config),
+                ) {
+                    crate::core::diagnostics::push_warning_deduped(&mut backend_page_warnings, warning);
                 }
 
                 let recognized_tables = if let (Some(scaled_det), Some(render_ocr_elements), true) =

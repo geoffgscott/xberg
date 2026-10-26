@@ -3335,7 +3335,7 @@ fn is_table_model_available(
 }
 
 #[cfg(feature = "layout-detection")]
-fn table_model_unavailable_warning(model_name: &str) -> crate::types::ProcessingWarning {
+pub(crate) fn table_model_unavailable_warning(model_name: &str) -> crate::types::ProcessingWarning {
     crate::types::ProcessingWarning {
         source: std::borrow::Cow::Borrowed("pdf_tables"),
         message: std::borrow::Cow::Owned(format!(
@@ -3706,7 +3706,7 @@ fn build_document_structure(
                                 }
                                 heuristic_tables(tp)
                             } else {
-                                Vec::new()
+                                heuristic_tables(tp)
                             }
                         })
                         .collect();

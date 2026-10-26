@@ -6813,6 +6813,54 @@ Name: ___
     }
 
     #[cfg(feature = "layout-detection")]
+    fn single_region_detection(class_name: crate::layout::LayoutClass) -> crate::layout::DetectionResult {
+        crate::layout::DetectionResult::new(
+            200,
+            100,
+            vec![crate::layout::LayoutDetection::new(
+                class_name,
+                0.98,
+                crate::layout::BBox::new(0.0, 0.0, 100.0, 100.0),
+            )],
+        )
+    }
+
+    /// A configured TATR model that could not be loaded used to leave the force-OCR route's
+    /// tables as paragraphs with no warning, so the caller never learned why.
+    #[cfg(feature = "layout-detection")]
+    #[test]
+    fn unavailable_tatr_warns_on_a_page_with_a_table_region() {
+        let table = single_region_detection(crate::layout::LayoutClass::Table);
+
+        let warning = ocr_table_model_warning(Some(&table), true)
+            .expect("a table region with no TATR model must carry a warning");
+
+        assert_eq!(warning.source.as_ref(), "pdf_tables");
+        assert_eq!(
+            warning.message.as_ref(),
+            "layout detection found table regions but the TATR table model is not available; table structure \
+             recognition was skipped; check that the model is downloaded"
+        );
+    }
+
+    #[cfg(feature = "layout-detection")]
+    #[test]
+    fn unavailable_tatr_does_not_warn_without_a_table_region() {
+        let text = single_region_detection(crate::layout::LayoutClass::Text);
+
+        assert!(ocr_table_model_warning(Some(&text), true).is_none());
+        assert!(ocr_table_model_warning(None, true).is_none());
+    }
+
+    #[cfg(feature = "layout-detection")]
+    #[test]
+    fn available_tatr_does_not_warn_on_a_table_region() {
+        let table = single_region_detection(crate::layout::LayoutClass::Table);
+
+        assert!(ocr_table_model_warning(Some(&table), false).is_none());
+    }
+
+    #[cfg(feature = "layout-detection")]
     #[test]
     fn invalid_rotation_metadata_preserves_dimension_only_fallback() {
         let metadata = rotated_ocr_metadata(200, 400, 45);

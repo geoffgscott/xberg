@@ -3135,8 +3135,10 @@ impl PdfExtractor {
         #[cfg(any(feature = "ocr", feature = "ocr-pipeline"))]
         tracing::debug!(?document_origin, document_is_structured, "selected PDF document origin");
 
+        // Deduped: on the mixed route an OCR'd page and the native pipeline can raise the same table
+        // model warning for one document. ~keep
         #[cfg(any(feature = "ocr", feature = "ocr-pipeline"))]
-        doc.processing_warnings.append(&mut ocr_fallback_warnings);
+        crate::core::diagnostics::dedup_extend_warnings(&mut doc.processing_warnings, ocr_fallback_warnings);
         #[cfg(any(feature = "ocr", feature = "ocr-pipeline"))]
         doc.ocr_page_failures.append(&mut ocr_page_failures);
 
