@@ -1,0 +1,41 @@
+# Tools for regenerating and verifying the alef-generated bindings (`task alef:generate`, `task alef:verify`)
+# at the versions CI uses. Rust comes from rust-toolchain.toml through rustup. Each pin names where CI or the
+# repository sets it; bump them together.
+#
+# Use Ubuntu (CI's runner) or macOS. alef builds the Swift bridge, and mise installs swift.org's toolchain,
+# which is built for specific distributions; on other Linux distributions it may not install or link.
+
+[tools]
+# alef.toml `alef_version`, which install-alef reads.
+"github:xberg-io/alef" = "0.111.0"
+# ci-lint.yaml installs poly through Goldziher/poly, which takes the latest release.
+"github:Goldziher/poly" = "0.29.0"
+# Formatters alef and poly call from PATH: pyproject.toml ruff, ci-scripts.yaml shfmt, ci-lint.yaml
+# CLANG_FORMAT_VERSION and GOOGLE_JAVA_FORMAT_VERSION (on Java 25, latest patch).
+"aqua:astral-sh/ruff" = "0.17.2"
+"aqua:mvdan/sh" = "3.14.1"
+"pipx:clang-format" = "23.1.1"
+java = "temurin-25.0.5+8.0.LTS"
+google-java-format = "1.36.1"
+# ci-e2e.yaml swift-version; alef builds the swift-bridge glue.
+swift = "6.0.3"
+# ci-lint.yaml setup-dart. Run `task dart:format:context` (part of `task alef:generate`) first, or the
+# `dart format` inside flutter_rust_bridge_codegen formats at the latest language version.
+dart = "3.13.7"
+# packages/dart/rust/Cargo.toml flutter_rust_bridge; the codegen calls `cargo expand`.
+"cargo:flutter_rust_bridge_codegen" = "2.13.0"
+"cargo:cargo-expand" = "1.0.127"
+# alef sorts generated Cargo.toml files with `cargo sort`.
+"cargo:cargo-sort" = "2.1.4"
+# ci-lint.yaml elixir-version 1.19 and otp-version 28 (latest patch of each). `mix format` reads rustler's
+# formatter, so the first run fetches packages/elixir's deps through Hex.
+erlang = "28.5.0.8"
+elixir = { version = "1.19.6-otp-28", postinstall = "mix local.hex --force --if-missing && mix local.rebar --force --if-missing" }
+# ci-e2e.yaml zig-version and packages/zig/build.zig.zon minimum_zig_version.
+zig = "0.17.0"
+# ci-e2e.yaml go-version 1.26 (latest patch).
+go = "1.26.10"
+# ci-lint.yaml setup-uv python-version.
+python = "3.11.17"
+uv = "0.13.5"
+task = "3.54.0"
