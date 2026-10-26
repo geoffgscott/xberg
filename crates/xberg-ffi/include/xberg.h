@@ -2699,6 +2699,15 @@ typedef struct XBERGTable XBERGTable;
  */
 typedef struct XBERGTableCell XBERGTableCell;
 /**
+ * An inline annotation on one table cell's text, located by grid position.
+ *
+ * One entry per annotation, not a per-cell grid: the nested grid shape marshals
+ * badly across the FFI bindings, and the data is sparse. The annotation is the
+ * same `TextAnnotation` a paragraph carries, with byte offsets into
+ * `cells`row``col``. See `Table.cell_annotations`.
+ */
+typedef struct XBERGTableCellAnnotation XBERGTableCellAnnotation;
+/**
  * The paragraph style a single table cell's text carries, located by grid
  * position.
  *
@@ -14187,6 +14196,15 @@ int32_t xberg_grid_cell_has_heading_level(XBERGAlefHandle handle);
 char *xberg_grid_cell_style_name(XBERGAlefHandle handle);
 
 /**
+ * Get the `annotations` field from a `GridCell`.
+ * A non-null returned pointer is owned by the caller.
+ * It must be freed with `xberg_free_string`.
+ * # Safety
+ * Pointer must be a valid handle returned by this library.
+ */
+char *xberg_grid_cell_annotations(XBERGAlefHandle handle);
+
+/**
  * Create a `HeaderMetadata` from a JSON string. Returns null on failure.
  * # Safety
  * JSON string must be valid UTF-8 and null-terminated.
@@ -24776,6 +24794,15 @@ char *xberg_table_cell_styles(XBERGAlefHandle handle);
 char *xberg_table_columns(XBERGAlefHandle handle);
 
 /**
+ * Get the `cell_annotations` field from a `Table`.
+ * A non-null returned pointer is owned by the caller.
+ * It must be freed with `xberg_free_string`.
+ * # Safety
+ * Pointer must be a valid handle returned by this library.
+ */
+char *xberg_table_cell_annotations(XBERGAlefHandle handle);
+
+/**
  * Create a `TableCell` from a JSON string. Returns null on failure.
  * # Safety
  * JSON string must be valid UTF-8 and null-terminated.
@@ -24827,6 +24854,52 @@ uint32_t xberg_table_cell_col_span(XBERGAlefHandle handle);
  * Pointer must be a valid handle returned by this library.
  */
 int32_t xberg_table_cell_is_header(XBERGAlefHandle handle);
+
+/**
+ * Create a `TableCellAnnotation` from a JSON string. Returns null on failure.
+ * # Safety
+ * JSON string must be valid UTF-8 and null-terminated.
+ * Returned handle must be freed with `xberg_table_cell_annotation_free`.
+ */
+XBERGAlefHandle xberg_table_cell_annotation_from_json(const char *json);
+
+/**
+ * Serialize a `TableCellAnnotation` to a JSON string. Returns null on failure.
+ * # Safety
+ * `handle` must be a valid, non-zero handle returned by a `xberg` function.
+ * The returned string must be freed with `xberg_free_string`.
+ */
+char *xberg_table_cell_annotation_to_json(XBERGAlefHandle handle);
+
+/**
+ * Free a `TableCellAnnotation` handle.
+ * # Safety
+ * Handle must have been returned by this library, or be zero.
+ */
+void xberg_table_cell_annotation_free(XBERGAlefHandle handle);
+
+/**
+ * Get the `row` field from a `TableCellAnnotation`.
+ * # Safety
+ * Pointer must be a valid handle returned by this library.
+ */
+uint32_t xberg_table_cell_annotation_row(XBERGAlefHandle handle);
+
+/**
+ * Get the `col` field from a `TableCellAnnotation`.
+ * # Safety
+ * Pointer must be a valid handle returned by this library.
+ */
+uint32_t xberg_table_cell_annotation_col(XBERGAlefHandle handle);
+
+/**
+ * Get the `annotation` field from a `TableCellAnnotation`.
+ * A non-null returned handle is owned by the caller.
+ * It must be freed with `xberg_text_annotation_free`.
+ * # Safety
+ * Pointer must be a valid handle returned by this library.
+ */
+XBERGAlefHandle xberg_table_cell_annotation_annotation(XBERGAlefHandle handle);
 
 /**
  * Create a `TableCellStyle` from a JSON string. Returns null on failure.
