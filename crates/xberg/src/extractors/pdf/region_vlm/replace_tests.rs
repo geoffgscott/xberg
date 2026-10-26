@@ -623,6 +623,19 @@ fn should_replace_a_native_table_with_an_html_table_answer() {
     assert_eq!(texts_after_answer_over_table(cells, answer), [answer]);
 }
 
+/// PaddleOCR-VL answers a "Table Recognition:" prompt in OTSL, with no space between cells.
+#[test]
+fn should_replace_a_native_table_with_an_otsl_table_answer() {
+    let cells = [
+        ["item", "q1", "q2", "q3"],
+        ["north", "10", "20", "30"],
+        ["south", "11", "21", "31"],
+    ];
+    let answer = "<fcel>Item<fcel>Q1<fcel>Q2<fcel>Q3<nl><fcel>North<fcel>10<fcel>20<fcel>30<nl><fcel>South<fcel>11<fcel>21<fcel>31<nl>";
+
+    assert_eq!(texts_after_answer_over_table(cells, answer), [answer]);
+}
+
 #[test]
 fn should_replace_a_paragraph_missing_one_word_only_when_it_has_ten_or_more() {
     let long = "one two three four five six seven eight nine ten";
