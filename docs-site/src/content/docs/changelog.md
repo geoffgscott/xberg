@@ -93,7 +93,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rotated page drops its layout images before the region pass, so no region reaches the VLM; otherwise the region and
   the text are compared as if in one page frame, so on a rotated page, or one whose MediaBox does not start at the
   origin, a region can miss the text it covers.
-
 - **(djot): Keep apostrophes, quotes, dashes and ellipses, and read table captions.**
   jotdown reports smart punctuation as events of their own, which the extractor skipped in every block, so
   `Don't` came out as `Dont`, `"fine"` as `fine` and `1--2` as `12`. They now come out as the characters

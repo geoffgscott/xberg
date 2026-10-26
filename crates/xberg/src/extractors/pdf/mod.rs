@@ -681,7 +681,7 @@ fn take_if_represented(tokens: ahash::AHashMap<String, usize>, pool: &mut ahash:
         .iter()
         .map(|(token, count)| (*count).min(pool.get(token).copied().unwrap_or_default()))
         .sum();
-    if total > 0 && (matched as f64 / total as f64) < MIN_TABLE_TOKEN_REPRESENTATION {
+    if (matched as f64 / total as f64) < MIN_TABLE_TOKEN_REPRESENTATION {
         return false;
     }
     for (token, count) in tokens {

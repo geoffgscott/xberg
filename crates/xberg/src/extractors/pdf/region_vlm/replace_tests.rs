@@ -566,6 +566,60 @@ fn should_replace_a_native_table_only_when_the_answer_carries_nine_tenths_of_its
     }
 }
 
+/// Injects `answer` over a native 3x4 table of `cells` and returns the resulting element texts.
+fn texts_after_answer_over_table(cells: [[&str; 4]; 3], answer: &str) -> Vec<String> {
+    let mut document = InternalDocument::default();
+    let table = table_at(&mut document, 1, "native", 340.0, 580.0);
+    document.tables[0].cells = cells.iter().map(|row| row.iter().map(ToString::to_string).collect()).collect();
+    document.elements.push(table);
+
+    inject_region_results(
+        &mut document,
+        vec![region_result(
+            0,
+            answer,
+            region_hint(LayoutHintClass::Table, 300.0, 600.0),
+        )],
+    );
+    texts(&document)
+}
+
+#[test]
+fn should_replace_a_native_table_with_a_compact_pipe_table_answer() {
+    let cells = [
+        ["item", "q1", "q2", "q3"],
+        ["north", "10", "20", "30"],
+        ["south", "11", "21", "31"],
+    ];
+    let answer = "|Item|Q1|Q2|Q3|\n|---|---|---|---|\n|North|10|20|30|\n|South|11|21|31|";
+
+    assert_eq!(texts_after_answer_over_table(cells, answer), [answer]);
+}
+
+#[test]
+fn should_replace_a_native_table_with_an_answer_that_breaks_cells_with_br_tags() {
+    let cells = [
+        ["item", "q1", "q2", "q3"],
+        ["north america", "10", "20", "30"],
+        ["south america", "11", "21", "31"],
+    ];
+    let answer = "| Item | Q1 | Q2 | Q3 |\n| --- | --- | --- | --- |\n| North<br>America | 10 | 20 | 30 |\n| South<BR/>America | 11 | 21 | 31 |";
+
+    assert_eq!(texts_after_answer_over_table(cells, answer), [answer]);
+}
+
+#[test]
+fn should_replace_a_native_table_with_an_html_table_answer() {
+    let cells = [
+        ["item", "q1", "q2", "q3"],
+        ["north", "10", "20", "30"],
+        ["south", "11", "21", "31"],
+    ];
+    let answer = "<table><tr><td>Item</td> <td>Q1</td> <td>Q2</td> <td>Q3</td></tr>\n<tr><td>North</td> <td>10</td> <td>20</td> <td>30</td></tr>\n<tr><td>South</td> <td>11</td> <td>21</td> <td>31</td></tr></table>";
+
+    assert_eq!(texts_after_answer_over_table(cells, answer), [answer]);
+}
+
 #[test]
 fn should_replace_a_paragraph_missing_one_word_only_when_it_has_ten_or_more() {
     let long = "one two three four five six seven eight nine ten";

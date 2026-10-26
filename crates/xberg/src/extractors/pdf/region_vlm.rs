@@ -420,6 +420,31 @@ fn take_if_carried(
     super::take_if_represented(words, answer)
 }
 
+/// `answer` with every cell separator turned into a space, so the word count sees the cells of a compact
+/// pipe table (`|a|b|`), of `<br>` line breaks and of an HTML table as the native table's words.
+/// A tag is `<` followed by a letter, `/` or `!` up to the next `>`; any other `<` stays text.
+fn answer_text_for_words(answer: &str) -> String {
+    let mut text = String::with_capacity(answer.len());
+    let mut rest = answer;
+    while let Some(open) = rest.find('<') {
+        text.push_str(&rest[..open]);
+        let tail = &rest[open + 1..];
+        let starts_tag = tail.starts_with(|c: char| c.is_ascii_alphabetic() || c == '/' || c == '!');
+        match tail.find('>') {
+            Some(close) if starts_tag => {
+                text.push(' ');
+                rest = &tail[close + 1..];
+            }
+            _ => {
+                text.push('<');
+                rest = tail;
+            }
+        }
+    }
+    text.push_str(rest);
+    text.replace('|', " ")
+}
+
 /// Also drops each container start and end pair the removal left with nothing inside, so the
 /// answer is not spliced into an empty group and the page reads as empty to [`splice_element`].
 fn drop_emptied_containers(elements: &[InternalElement], drop: &mut [bool]) {
@@ -522,7 +547,7 @@ fn remove_region_content(
         .filter(|relationship| matches!(relationship.kind, RelationshipKind::Caption))
         .map(|relationship| relationship.source)
         .collect();
-    let mut answer_words = super::token_multiset([answer]);
+    let mut answer_words = super::token_multiset([answer_text_for_words(answer).as_str()]);
     let candidates: Vec<usize> = (0..document.elements.len())
         .filter(|&index| {
             let element = &document.elements[index];
