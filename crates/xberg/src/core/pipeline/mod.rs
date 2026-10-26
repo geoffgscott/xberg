@@ -1378,8 +1378,9 @@ fn replace_embedded_image_markdown_with_ocr(doc: &mut InternalDocument, inline_i
     }
 
     for table in &mut doc.tables {
-        for row in &mut table.cells {
-            for cell in row {
+        let mut replaced = Vec::new();
+        for (row_idx, row) in table.cells.iter_mut().enumerate() {
+            for (col_idx, cell) in row.iter_mut().enumerate() {
                 if !is_markdown_image_reference(cell) {
                     continue;
                 }
@@ -1390,11 +1391,15 @@ fn replace_embedded_image_markdown_with_ocr(doc: &mut InternalDocument, inline_i
                     && !ocr.content.is_empty()
                 {
                     *cell = ocr.content.clone();
+                    replaced.push((row_idx, col_idx));
                     image_idx += 1;
                     continue;
                 }
                 image_idx += 1;
             }
+        }
+        for (row_idx, col_idx) in replaced {
+            table.drop_cell_annotations(row_idx, col_idx);
         }
     }
 }
@@ -1440,8 +1445,9 @@ fn append_embedded_image_ocr_text(doc: &mut InternalDocument, inline_images: &[u
     doc.elements = new_elements;
 
     for table in &mut doc.tables {
-        for row in &mut table.cells {
-            for cell in row {
+        let mut moved = Vec::new();
+        for (row_idx, row) in table.cells.iter_mut().enumerate() {
+            for (col_idx, cell) in row.iter_mut().enumerate() {
                 if !is_markdown_image_reference(cell) {
                     continue;
                 }
@@ -1451,12 +1457,23 @@ fn append_embedded_image_ocr_text(doc: &mut InternalDocument, inline_images: &[u
                     && let Some(ocr) = &img.ocr_result
                     && !ocr.content.is_empty()
                 {
+                    let keeps_ranges = keeps_ranges_when_appended(cell);
                     *cell = format!("{}\n\n{}", cell.trim(), ocr.content);
+                    moved.extend((!keeps_ranges).then_some((row_idx, col_idx)));
                 }
                 image_idx += 1;
             }
         }
+        for (row_idx, col_idx) in moved {
+            table.drop_cell_annotations(row_idx, col_idx);
+        }
     }
+}
+
+/// Whether a cell's annotation ranges still hold once OCR text is appended to it: only when its
+/// text survives untrimmed as the prefix.
+fn keeps_ranges_when_appended(cell: &str) -> bool {
+    cell.trim().len() == cell.len()
 }
 
 /// Returns `true` if `text` is exactly a markdown image reference (`![alt](url)`).

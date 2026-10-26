@@ -712,3 +712,7 @@ mod auto_gate_vlm_region_tests;
     feature = "tokio-runtime"
 ))]
 mod region_replace_native_paragraph_tests;
+
+#[cfg(test)]
+#[cfg(all(feature = "pdf", feature = "layout-detection", feature = "tokio-runtime"))]
+mod listed_pages_tests;
