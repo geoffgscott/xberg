@@ -1,28 +1,28 @@
-|  |  | 10 5  |  |
-| --- | --- | --- | --- |
-| 0 . 0 | 0 . 0 0 . 0 | 1 . 0 4 |  |
-|   − 32 . 1699 | − 0 . 0358 − 131 . 646 | − 3 . 1099   10 |  |
-| A := |  | , |  |
-|  0 . 0 | − 0 . 0002 − 1 . 5333 | 0 . 9281  10 3 |  |
-| 0 . 0 | 0 . 0003 − 4 . 6719 | − 1 . 9076 |  |
-|  |  | 10 2 |  |
-| 0 . 0 | 0 . 0 0 . 0 |  |  |
-|   0 . 0016 0 . 0525 | 0 . 1574   | 10 1 |  |
-| Bu := | , |  |  |
-|  − 0 . 0 − | 0 . 0031 0 . 0008  |  |  |
-| 0 . 0 − | 0 . 4503 − 0 . 0614 | 10 0 |  |
-|   |  |  |  |
-| 0 |  | 10 -1 |  |
-|  1  |  |  |  |
-| Bd :=   . |  | 10 -2 |  |
-|  0  |  |  |  |
-| 0 |  | 10 -3 |  |
-| The control objective | is to keep perturbations | in the flight- | Actuator |
-| path angle θ − α and V | t to be small due to the | disturbance in | Fig. 3. Minimum actuator cutoff frequencies (rad/s). |
-| Vt , in the H2 and H ∞ | sense. Therefore, |  |  |
-| 1 | 0 − 1 0 | 0 |  |
-| Cz := W z | , Dd := | , 1 |  |
-| 0 | 1 0 0 | 0 10 |  |
+|  |  | 10 5  |
+| --- | --- | --- |
+| 0 . 0 | 0 . 0 0 . 0 | 1 . 0 4 |
+|   − 32 . 1699 | − 0 . 0358 − 131 . 646 − 3 . 1099   | 10 |
+| A := |  | , |
+|  0 . 0 | − 0 . 0002 − 1 . 5333 0 . 9281  | 10 3 |
+| 0 . 0 | 0 . 0003 − 4 . 6719 − 1 . 9076 |  |
+|  |  | 10 2 |
+| 0 . 0 | 0 . 0 0 . 0 |  |
+|   0 . 0016 | 0 . 0525 0 . 1574   | 10 1 |
+| Bu := | , |  |
+|  − 0 . 0 − 0 . 0031 | 0 . 0008  |  |
+| 0 . 0 − 0 . 4503 | − 0 . 0614 | 10 0 |
+|   |  |  |
+| 0 |  | 10 -1 |
+|  1  |  |  |
+| Bd :=   . |  | 10 -2 |
+|  0  |  |  |
+| 0 |  | 10 -3 |
+| The control objective is to keep perturbations in the flight- |  | Actuator |
+| path angle θ − α and V t to be small due to the disturbance in |  | Fig. 3. Minimum actuator cutoff frequencies (rad/s). |
+| Vt , in the H2 and H ∞ sense. Therefore, |  |  |
+|  | 1 0 − 1 0 0 |  |
+| Cz := W z | , Dd := | , 1 |
+|  | 0 1 0 0 0 | 10 |
 
 **where W := diag 11.46 0.1 , scales z such that the z desired closed-loop performance, defined by the H or H**
 

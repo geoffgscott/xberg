@@ -72,7 +72,7 @@ fj+
 
 3
 
-| Scheme | Table 1. a | The coefficients of TDCNCS schemes. b | c | α | β | Order |
+| Scheme | Table 1. The coefficients of TDCNCS schemes. a | b | c | α | β | Order |
 | --- | --- | --- | --- | --- | --- | --- |
 | TDCNCS-E2 | 1 | 0 | 0 | 0 | 0 | 2 |
 | TDCNCS-E4 | 2 | -1 | 0 | 0 | 0 | 4 |
