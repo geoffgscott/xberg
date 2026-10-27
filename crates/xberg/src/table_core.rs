@@ -6,7 +6,8 @@
 //!
 //! Originally adapted from the `hocr` module of `html-to-markdown-rs` (removed in v3).
 
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 /// Represents a word extracted from hOCR (or any source) with position and confidence information.
 #[cfg_attr(alef, alef(skip))]
@@ -740,40 +741,81 @@ fn repeated_column_edge_words(rows: &[Vec<&HocrWord>], median_height: u32) -> Ha
     }
     candidates.sort_by_key(|candidate| candidate.0);
 
+    let mut rows_seen = WindowCounts::default();
+    let mut words_seen = WindowCounts::default();
+    let mut neighbours_seen = WindowCounts::default();
     let mut blocked = HashSet::new();
     let mut start = 0;
     let mut end = 0;
     while start < candidates.len() {
         // Bounded by the window's first edge, not its neighbour: chaining neighbours let
         // whole-point prose edges a point or two apart span a whole text column.
-        end = end.max(start + 1);
         while end < candidates.len() && candidates[end].0 - candidates[start].0 <= tolerance {
+            let (_, row_index, previous, word) = candidates[end];
+            rows_seen.add(row_index);
+            words_seen.add(word.text.as_str());
+            neighbours_seen.add(previous.text.as_str());
             end += 1;
         }
-        let cluster = &candidates[start..end];
-        let row_count = cluster
-            .iter()
-            .map(|candidate| candidate.1)
-            .collect::<HashSet<_>>()
-            .len();
-        if row_count >= COLUMN_EDGE_MIN_ROWS {
-            let distinct = |texts: Vec<&str>| texts.into_iter().collect::<HashSet<_>>().len();
-            let varied_words = distinct(cluster.iter().map(|c| c.3.text.as_str()).collect());
-            let varied_neighbours = distinct(cluster.iter().map(|c| c.2.text.as_str()).collect());
-            if varied_words * 2 >= cluster.len() && varied_neighbours * 2 >= cluster.len() {
-                blocked.extend(cluster.iter().map(|c| std::ptr::from_ref(c.3)));
-                start = end;
-                continue;
-            }
+        let window_len = end - start;
+        let is_column_edge = rows_seen.distinct() >= COLUMN_EDGE_MIN_ROWS
+            && words_seen.distinct() * 2 >= window_len
+            && neighbours_seen.distinct() * 2 >= window_len;
+        // Slide to the next distinct edge rather than jumping past a failed window: a stray edge
+        // just left of a column would otherwise take the window start and split the column below
+        // the row floor. Each candidate enters and leaves the counts once, so the scan is O(n).
+        let next_start = if is_column_edge {
+            blocked.extend(candidates[start..end].iter().map(|c| std::ptr::from_ref(c.3)));
+            end
+        } else {
+            let edge = candidates[start].0;
+            start + candidates[start..].partition_point(|candidate| candidate.0 == edge)
+        };
+        for &(_, row_index, previous, word) in &candidates[start..next_start] {
+            rows_seen.remove(row_index);
+            words_seen.remove(word.text.as_str());
+            neighbours_seen.remove(previous.text.as_str());
         }
-        // Slide to the next distinct edge rather than jumping past the window: a stray edge just
-        // left of a column would otherwise take the window start and split the column below the
-        // row floor. Windows start at distinct whole-unit edges, so each candidate falls in at
-        // most `tolerance + 1` of them, about n x (tolerance + 1) work in all.
-        let edge = candidates[start].0;
-        start += candidates[start..].partition_point(|candidate| candidate.0 == edge);
+        start = next_start;
     }
     blocked
+}
+
+/// Occurrence counts over the candidates in the column-edge scan window. A key leaves the map
+/// when its count reaches zero, so `distinct` is the number of distinct keys in the window.
+struct WindowCounts<K>(HashMap<K, usize>);
+
+impl<K> Default for WindowCounts<K> {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+impl<K: std::hash::Hash + Eq> WindowCounts<K> {
+    fn add(&mut self, key: K) {
+        #[cfg(test)]
+        WINDOW_COUNT_ADDS.with(|adds| adds.set(adds.get() + 1));
+        *self.0.entry(key).or_insert(0) += 1;
+    }
+
+    fn remove(&mut self, key: K) {
+        if let Entry::Occupied(mut entry) = self.0.entry(key) {
+            *entry.get_mut() -= 1;
+            if *entry.get() == 0 {
+                entry.remove();
+            }
+        }
+    }
+
+    fn distinct(&self) -> usize {
+        self.0.len()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Additions to any [`WindowCounts`] on this thread, for the scan's operation-count tests.
+    static WINDOW_COUNT_ADDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Decide the maximum horizontal gap allowed for merging `word` into the token immediately
@@ -4132,6 +4174,47 @@ mod tests {
         let rows: Vec<Vec<&HocrWord>> = row_words.iter().map(|row| row.iter().collect()).collect();
 
         assert!(repeated_column_edge_words(&rows, 32).is_empty());
+    }
+
+    /// Runs the column-edge scan over `row_words` with a tolerance spanning every edge, returning
+    /// the blocked set and how many count additions it made.
+    fn column_edge_scan_adds(row_words: &[Vec<HocrWord>]) -> (HashSet<*const HocrWord>, usize) {
+        let rows: Vec<Vec<&HocrWord>> = row_words.iter().map(|row| row.iter().collect()).collect();
+        WINDOW_COUNT_ADDS.with(|adds| adds.set(0));
+        let blocked = repeated_column_edge_words(&rows, 5_000_000);
+        (blocked, WINDOW_COUNT_ADDS.with(std::cell::Cell::get))
+    }
+
+    /// 3,500 distinct edges inside one tolerance, in only seven rows, so every window fails the
+    /// row floor. Rebuilding each window's counts takes about 6 million additions.
+    #[test]
+    fn insufficient_rows_scan_is_linear_in_candidates() {
+        let row_words: Vec<Vec<HocrWord>> = (0..7u32)
+            .map(|r| {
+                (0..=500u32)
+                    .map(|j| word(&format!("w{r}_{j}"), j * 10 + r, 100 + r * 60, 5, 32))
+                    .collect()
+            })
+            .collect();
+        let (blocked, adds) = column_edge_scan_adds(&row_words);
+        assert!(blocked.is_empty());
+        assert_eq!(adds, 3 * 7 * 500, "each candidate enters the three counts once");
+    }
+
+    /// 4,000 distinct edges inside one tolerance, in ten rows of the same word, so every window
+    /// fails the variation rule. Rebuilding each window's counts takes about 8 million additions.
+    #[test]
+    fn repeated_word_scan_is_linear_in_candidates() {
+        let row_words: Vec<Vec<HocrWord>> = (0..10u32)
+            .map(|r| {
+                (0..=400u32)
+                    .map(|j| word("Item", j * 20 + r, 100 + r * 60, 5, 32))
+                    .collect()
+            })
+            .collect();
+        let (blocked, adds) = column_edge_scan_adds(&row_words);
+        assert!(blocked.is_empty());
+        assert_eq!(adds, 3 * 10 * 400, "each candidate enters the three counts once");
     }
 
     #[test]
