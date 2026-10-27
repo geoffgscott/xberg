@@ -80,6 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wide character that an overwrite cuts becomes a space. The 8-bit CSI character (`U+009B`) and its parameters stayed
   in the text; they are removed like `ESC [`. Combining marks now stay with their base character when output is
   overwritten. (#2245)
+- **(pdf): A long, narrow table with a column of values is no longer flattened as columned prose.**
+  A grid of more than 20 rows and at most 3 columns was read as prose laid out in columns when, in more than half of
+  its rows that fill at least two cells, those cells averaged four or more words. A column holding a number in more
+  than half of those rows now exempts the grid from that rejection.
 - **(djot): The footnote reference in the caption of a table without rows is dropped with the caption.**
   A table without rows, such as a lone `|---|` line, is not written and its caption is dropped. The footnote
   reference in that caption used to stay and appeared before the next table.

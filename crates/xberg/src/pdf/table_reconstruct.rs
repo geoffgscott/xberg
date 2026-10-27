@@ -1788,7 +1788,10 @@ fn looks_like_shredded_prose_row(row: &[String], num_cols: usize) -> bool {
 /// The signal is words-per-cell among rows that populate at least two columns: a table cell holds
 /// a value (a number, a code, a short label), while columned prose fills each cell with a phrase.
 /// Ignoring singleton rows lets this catch alternating newsletter columns without rejecting a
-/// sparse scalar table merely because it has many rows (xberg-io/xberg#1223). ~keep
+/// sparse scalar table merely because it has many rows (xberg-io/xberg#1223). A column holding a
+/// numeric value (`is_numeric_value_cell`: digits at least half of its letters and digits) in more
+/// than half of the eligible rows exempts the grid: columned prose does not carry a number down its
+/// rows, while a wordy table (descriptions beside an amount) does. ~keep
 fn looks_like_prose_in_columns(data_rows: &[Vec<String>], num_cols: usize) -> bool {
     /// A cell averaging this many words or more reads as a phrase, not a value.
     const PROSE_WORDS_PER_CELL: f64 = 4.0;
@@ -1798,6 +1801,7 @@ fn looks_like_prose_in_columns(data_rows: &[Vec<String>], num_cols: usize) -> bo
     }
     let mut prose_rows = 0usize;
     let mut eligible_rows = 0usize;
+    let mut value_cells_per_column = vec![0usize; num_cols];
     for row in data_rows {
         let cells: Vec<&str> = row.iter().map(|c| c.trim()).filter(|c| !c.is_empty()).collect();
         if cells.len() < 2 {
@@ -1808,13 +1812,19 @@ fn looks_like_prose_in_columns(data_rows: &[Vec<String>], num_cols: usize) -> bo
             continue;
         }
         eligible_rows += 1;
+        for (count, cell) in value_cells_per_column.iter_mut().zip(row) {
+            if is_numeric_value_cell(cell.trim()) {
+                *count += 1;
+            }
+        }
         let total_words: usize = cells.iter().map(|c| c.split_whitespace().count()).sum();
         let avg_words = total_words as f64 / cells.len() as f64;
         if avg_words >= PROSE_WORDS_PER_CELL {
             prose_rows += 1;
         }
     }
-    eligible_rows >= 3 && prose_rows * 2 > eligible_rows
+    let has_value_column = value_cells_per_column.iter().any(|&count| count * 2 > eligible_rows);
+    eligible_rows >= 3 && !has_value_column && prose_rows * 2 > eligible_rows
 }
 
 /// A cell containing at least one alphabetic run but not itself a numeric value.
@@ -3984,6 +3994,85 @@ mod tests {
         assert!(
             post_process_table(table, false, false).is_none(),
             "alternating newsletter columns must remain prose rather than one page-sized table"
+        );
+    }
+
+    /// A Federal Register civil-penalty table: wordy descriptions beside an amount column. The
+    /// all-words variant proves the descriptions alone reach the prose verdict.
+    #[test]
+    fn prose_in_columns_exempts_wordy_table_with_value_column() {
+        fn rows(citation: impl Fn(usize) -> String, amount: impl Fn(usize) -> String) -> Vec<Vec<String>> {
+            (0..22)
+                .map(|i| {
+                    vec![
+                        citation(i),
+                        format!("Civil money penalty for each day a violation of section {i} continues"),
+                        amount(i),
+                    ]
+                })
+                .collect()
+        }
+        let table = rows(
+            |i| format!("12 U.S.C. {}(a)", 1800 + i),
+            |i| match i {
+                5 => String::from("$2,297,385 or 1% of the total assets of the credit union"),
+                _ => format!("${},{:03}.", 4 + i, 596),
+            },
+        );
+        assert!(
+            !looks_like_prose_in_columns(&table, 3),
+            "a value column carried down the rows marks a real table"
+        );
+
+        let all_words = rows(
+            |_| String::from("Federal Credit Union Act"),
+            |_| String::from("Adjusted for inflation annually"),
+        );
+        assert!(looks_like_prose_in_columns(&all_words, 3));
+    }
+
+    #[test]
+    fn prose_in_columns_ignores_incidental_numbers() {
+        let rows: Vec<Vec<String>> = (0..12)
+            .map(|i| {
+                vec![
+                    "Association officer contact information follows here".into(),
+                    if i % 2 == 0 && i < 10 {
+                        format!("{}", i + 1)
+                    } else {
+                        "Committee and member service details".into()
+                    },
+                    "Retirees face increasing pension threats today".into(),
+                ]
+            })
+            .collect();
+        assert!(
+            looks_like_prose_in_columns(&rows, 3),
+            "a number in 5 of 12 rows is not a value column"
+        );
+    }
+
+    /// Line-numbered prose: a bare counter beside each wordy line. The counter is a value column,
+    /// so the columned-prose gate exempts it; the content-asymmetry gate rejects it first, since a
+    /// text cell long enough to lift the row's average to four words dwarfs a one- or two-digit
+    /// counter. ~keep
+    #[test]
+    fn line_numbered_prose_is_not_a_table() {
+        const LINES: [&str; 6] = [
+            "the witness stated that he had not seen the",
+            "Defendant leave the premises on the night in",
+            "question, and that he could not say whether",
+            "Counsel then asked whether the door had been",
+            "locked at any point during the evening and",
+            "The witness answered that he did not recall",
+        ];
+        let table: Vec<Vec<String>> = (0..26)
+            .map(|i| vec![format!("{}", i + 1), LINES[i % LINES.len()].to_string()])
+            .collect();
+
+        assert!(
+            post_process_table(table, true, false).is_none(),
+            "a line counter beside prose lines must not be read as a table"
         );
     }
 
