@@ -388,7 +388,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **(ocr): Tesseract C API declarations match the native return types.**
   Fixes the WASM link failure and a crash in `process_pages`; borrowed text is no longer freed. (#2145)
 - **(ocr): Table reconstruction keeps columns that sit close together.**
-  A repeated column edge less than about one space width from its neighbour is no longer merged into the neighbouring cell. (#2140)
+  A repeated column edge less than about one space width from its neighbour is no longer merged into the neighbouring cell; each edge spans at most that tolerance, so it no longer chains across a text column. (#2140)
 - **(images): TIFF pixel density (`XResolution`, `YResolution`, `ResolutionUnit`) is used as the source DPI instead of assuming 72.** (#2143)
 - **(ocr): Preserve ordered text and explicit HTML raw blocks returned by custom OCR backends.**
   Single-backend and pipeline image/PDF handoffs retain flat structured contributions, source-image references

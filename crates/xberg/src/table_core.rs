@@ -722,7 +722,7 @@ fn group_words_into_cell_tokens<'a>(
 const COLUMN_EDGE_MIN_ROWS: usize = 8;
 
 /// Words that start a column the cell merge must not swallow: the non-leading word's left edge
-/// (within a fifth of the median height) repeats across at least [`COLUMN_EDGE_MIN_ROWS`] rows,
+/// (all within a fifth of the median height of the leftmost) repeats across at least [`COLUMN_EDGE_MIN_ROWS`] rows,
 /// and both the word and its left neighbour vary from row to row in at least half of those rows.
 /// Without this, a column sitting closer than the merge gap to its neighbour (`ROW0004` then
 /// `21`, 10-16px apart in 32 rows) vanishes into one token and its cells come out empty.
@@ -742,9 +742,12 @@ fn repeated_column_edge_words(rows: &[Vec<&HocrWord>], median_height: u32) -> Ha
 
     let mut blocked = HashSet::new();
     let mut start = 0;
+    let mut end = 0;
     while start < candidates.len() {
-        let mut end = start + 1;
-        while end < candidates.len() && candidates[end].0 - candidates[end - 1].0 <= tolerance {
+        // Bounded by the window's first edge, not its neighbour: chaining neighbours let
+        // whole-point prose edges a point or two apart span a whole text column.
+        end = end.max(start + 1);
+        while end < candidates.len() && candidates[end].0 - candidates[start].0 <= tolerance {
             end += 1;
         }
         let cluster = &candidates[start..end];
@@ -759,9 +762,16 @@ fn repeated_column_edge_words(rows: &[Vec<&HocrWord>], median_height: u32) -> Ha
             let varied_neighbours = distinct(cluster.iter().map(|c| c.2.text.as_str()).collect());
             if varied_words * 2 >= cluster.len() && varied_neighbours * 2 >= cluster.len() {
                 blocked.extend(cluster.iter().map(|c| std::ptr::from_ref(c.3)));
+                start = end;
+                continue;
             }
         }
-        start = end;
+        // Slide to the next distinct edge rather than jumping past the window: a stray edge just
+        // left of a column would otherwise take the window start and split the column below the
+        // row floor. Windows start at distinct whole-unit edges, so each candidate falls in at
+        // most `tolerance + 1` of them, about n x (tolerance + 1) work in all.
+        let edge = candidates[start].0;
+        start += candidates[start..].partition_point(|candidate| candidate.0 == edge);
     }
     blocked
 }
@@ -4055,6 +4065,73 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Prose edges that step by less than the tolerance from row to row chain across a whole text
+    /// column; only the jittered column at 600 is one edge. When a cluster is bounded by its
+    /// neighbour instead of its first edge, the prose words are blocked too. ~keep
+    #[test]
+    fn chained_prose_edges_are_not_one_column_edge() {
+        let row_words: Vec<Vec<HocrWord>> = (0..12u32)
+            .map(|i| {
+                let top = 100 + i * 60;
+                vec![
+                    word(&format!("lead{i}"), 100, top, 150, 32),
+                    word(&format!("prose{i}"), 300 + i * 3, top, 200, 32),
+                    word(&format!("{}", 1000 + i * 37), 600 + i % 3, top, 80, 32),
+                ]
+            })
+            .collect();
+        let rows: Vec<Vec<&HocrWord>> = row_words.iter().map(|row| row.iter().collect()).collect();
+
+        let blocked = repeated_column_edge_words(&rows, 32);
+
+        let column: HashSet<*const HocrWord> = row_words.iter().map(|row| std::ptr::from_ref(&row[2])).collect();
+        assert_eq!(blocked, column);
+    }
+
+    /// A column whose edges spread across the whole tolerance (600-605), with one stray edge just
+    /// left of it (596). A scan that jumps past the stray's window splits the column in two, each
+    /// under the row floor, and the column is merged away. ~keep
+    #[test]
+    fn stray_edge_left_of_a_column_does_not_split_it() {
+        let mut row_words: Vec<Vec<HocrWord>> = (0..12u32)
+            .map(|i| {
+                let top = 100 + i * 60;
+                vec![
+                    word(&format!("ROW{i:04}"), 100, top, 150, 32),
+                    word(&format!("{}", 1000 + i * 37), 600 + i / 2, top, 80, 32),
+                ]
+            })
+            .collect();
+        row_words.push(vec![
+            word("Total", 100, 100 + 12 * 60, 150, 32),
+            word("stray", 596, 100 + 12 * 60, 80, 32),
+        ]);
+        let rows: Vec<Vec<&HocrWord>> = row_words.iter().map(|row| row.iter().collect()).collect();
+
+        let blocked = repeated_column_edge_words(&rows, 32);
+
+        let column: HashSet<*const HocrWord> = row_words[..12].iter().map(|row| std::ptr::from_ref(&row[1])).collect();
+        assert_eq!(blocked, column);
+    }
+
+    /// Many candidates on one edge that fail the variation rule (the same word in 40 rows) block
+    /// nothing; the scan steps past the shared edge once rather than once per candidate.
+    #[test]
+    fn repeated_word_on_one_edge_is_not_a_column_edge() {
+        let row_words: Vec<Vec<HocrWord>> = (0..40u32)
+            .map(|i| {
+                let top = 100 + i * 60;
+                vec![
+                    word(&format!("ROW{i:04}"), 100, top, 150, 32),
+                    word("Item", 300, top, 80, 32),
+                ]
+            })
+            .collect();
+        let rows: Vec<Vec<&HocrWord>> = row_words.iter().map(|row| row.iter().collect()).collect();
+
+        assert!(repeated_column_edge_words(&rows, 32).is_empty());
     }
 
     #[test]
