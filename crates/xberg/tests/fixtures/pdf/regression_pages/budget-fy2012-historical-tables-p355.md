@@ -4,7 +4,7 @@ THE BUDGET FOR FISCAL YEAR 2012, HISTORICAL TABLES
 
 **Table 15.6—TOTAL GOVERNMENT SURPLUSES OR DEFICITS ( ) IN ABSOLUTE AMOUNTS AND AS PERCENTAGES OF GDP: 1948–2010—Continued**
 
-In Billions of Current Dollars As Percentages of GDP Fiscal Year State and Local
+In Billions of Current Dollars As Percentages of GDP Fiscal Year Federal Government State and Local
 
 |  |  |  |  | State and Local | Total | Total Federal |
 | --- | --- | --- | --- | --- | --- | --- |

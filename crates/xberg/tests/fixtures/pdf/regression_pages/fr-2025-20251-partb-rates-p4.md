@@ -21,11 +21,9 @@ Beneficiaries who file individual tax returns with modified Total monthly premiu
 | Beneficiaries who file joint tax returns with modified adjusted gross income: | Income-related monthly adjustment amount |
 | Less than or equal to $218,000 ............................................ Greater than $218,000 and less than or equal to $274,000 Greater than $274,000 and less than or equal to $342,000 Greater than $342,000 and less than or equal to $410,000 Greater than $410,000 and less than $750,000 .................. Greater than or equal to $750,000 ....................................... | $0.00 81.10 202.70 324.30 445.90 486.50 |
 
-heads of households, qualifying widows coverage who file either individual tax premium rates are as follows: returns (and are single individuals,
+For beneficiaries with heads of households, qualifying widows the entire taxable year) or joint tax returns, the 2026 Part B monthly coverage who file either individual tax premium rates are as follows: returns (and are single individuals, who lived apart from their spouses for
 
-Beneficiaries who file individual tax returns with modified Total monthly
-
-Less than or equal to $109,000 ............................................ $0.00 $121.60 Greater than $109,000 and less than or equal to $137,000 Greater than $137,000 and less than or equal to $171,000 Greater than $171,000 and less than or equal to $205,000 Greater than $205,000 and less than $500,000 ................... 445.90 567.50 Greater than or equal to $500,000 ........................................ 486.50 608.10
+Beneficiaries who file individual tax returns with modified Total monthly premium amount Less than or equal to $109,000 ............................................ $0.00 $121.60 Greater than $109,000 and less than or equal to $137,000 Greater than $137,000 and less than or equal to $171,000 Greater than $171,000 and less than or equal to $205,000 Greater than $205,000 and less than $500,000 ................... 445.90 567.50 Greater than or equal to $500,000 ........................................ 486.50 608.10
 
 VerDate Sep\<11\>2014 18:13 Nov 18, 2025 Jkt 268001 PO 00000 Frm 00030 Fmt 4703 Sfmt 4703 E:\\FR\\FM\\19NON1.SGM 19NON1
 

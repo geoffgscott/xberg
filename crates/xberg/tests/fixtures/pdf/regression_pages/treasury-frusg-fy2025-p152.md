@@ -45,3 +45,5 @@
 | Net annual immigration3 |  |  | 2,102 |  | 1,323 | 1,289 | 1,260 | 1,251 | 1,244 | 1,240 | 1,237 | 1,235 |  |  |
 | Period life expectancy at birth - Male4 |  |  | 76.7 |  | 77.2 | 78.3 | 79.3 | 80.3 | 81.2 | 82.1 | 82.9 | 83.7 |  |  |
 | Period life expectancy at birth - Female4 |  |  | 81.6 |  | 82.1 | 83.0 | 83.8 | 84.6 | 85.4 | 86.1 | 86.7 | 87.4 |  |  |
+
+Reflects lower projected enrollment that is disproportionately lower for those eligible for low-income subsidies.
