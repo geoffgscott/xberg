@@ -2711,6 +2711,134 @@ fn a_short_run_is_not_carried_by_digits_straddling_two_cells() {
     );
 }
 
+/// A form's line-item cells: every word of the printed instruction on lines 43 and 44 of IRS
+/// Form 8829 occurs in them, but no row holds the instruction, as a run or as its words.
+fn form_line_coverage() -> Vec<TableCoverage> {
+    vec![TableCoverage::from_rows(
+        crate::types::BoundingBox {
+            x0: 30.0,
+            y0: 300.0,
+            x1: 560.0,
+            y1: 400.0,
+        },
+        [
+            vec!["26", "Subtract from line"],
+            vec!["27", "If less than zero, enter -0-"],
+        ],
+    )]
+}
+
+/// A whole-table word set has no order, so a long run carried by it alone deleted a sentence
+/// whose words each occur in some cell.
+#[test]
+fn a_long_run_is_not_carried_by_words_scattered_across_the_table() {
+    let sentence = "Subtract line 27 from line 26. If less than zero, enter -0-";
+    let segments = vec![column_seg(sentence, 40.0, 400.0, 380.0)];
+    let kept: Vec<String> = filter_segments_by_table_bboxes(segments, &form_line_coverage())
+        .into_iter()
+        .map(|seg| seg.text)
+        .collect();
+
+    assert_eq!(
+        kept,
+        vec![sentence.to_string()],
+        "a sentence no row holds must survive even when each of its words is a cell word"
+    );
+}
+
+#[test]
+fn a_short_cell_word_and_a_long_run_inside_one_row_are_still_carried() {
+    let segments = vec![
+        column_seg("27", 40.0, 12.0, 380.0),
+        column_seg("If less than zero, enter -0-", 120.0, 200.0, 360.0),
+    ];
+    assert!(
+        filter_segments_by_table_bboxes(segments, &form_line_coverage()).is_empty(),
+        "a short whole cell word and a long run one row holds are both table text"
+    );
+}
+
+/// The layout grid can split one line over a row's cells out of order (here its two halves sit
+/// in swapped cells, so the run is broken); the row still holds every word, so the prose copy
+/// is a duplicate.
+#[test]
+fn a_long_run_is_carried_by_one_row_holding_its_words_out_of_order() {
+    let coverage = vec![TableCoverage::from_rows(
+        crate::types::BoundingBox {
+            x0: 30.0,
+            y0: 300.0,
+            x1: 560.0,
+            y1: 400.0,
+        },
+        [
+            vec![
+                "Federal Register / Tuesday, April 28, 2026",
+                "Vol. 91, No. 81 / Notices",
+            ],
+            vec!["Agency", "Docket"],
+        ],
+    )];
+    let segments = vec![column_seg(
+        "Federal Register / Vol. 91, No. 81 / Tuesday, April 28, 2026 / Notices",
+        40.0,
+        400.0,
+        380.0,
+    )];
+    assert!(
+        filter_segments_by_table_bboxes(segments, &coverage).is_empty(),
+        "a long line whose words are all whole cell words of one row is table text"
+    );
+}
+
+/// The cutover sits at MIN_CROSS_CELL_RUN_GLYPHS: below it whole cell words of different rows
+/// carry a segment, at it only one row can.
+#[test]
+fn the_word_test_switches_from_table_to_row_at_eight_characters() {
+    let coverage = vec![TableCoverage::from_rows(
+        crate::types::BoundingBox {
+            x0: 30.0,
+            y0: 300.0,
+            x1: 560.0,
+            y1: 400.0,
+        },
+        [vec!["Item", "10"], vec!["Qty", "20"], vec!["Unit", "30"]],
+    )];
+    let segments = vec![
+        column_seg("Item Qty", 40.0, 60.0, 380.0),
+        column_seg("Item Unit", 40.0, 60.0, 360.0),
+    ];
+    let kept: Vec<String> = filter_segments_by_table_bboxes(segments, &coverage)
+        .into_iter()
+        .map(|seg| seg.text)
+        .collect();
+
+    assert_eq!(
+        kept,
+        vec!["Item Unit".to_string()],
+        "seven characters of cell words from two rows are carried; eight are not"
+    );
+}
+
+/// The length is counted in characters: this Cyrillic segment is seven characters but fourteen
+/// bytes, and counted in bytes it would take the row-only path and survive as a duplicate.
+#[test]
+fn a_short_non_ascii_segment_is_measured_in_characters() {
+    let coverage = vec![TableCoverage::from_rows(
+        crate::types::BoundingBox {
+            x0: 30.0,
+            y0: 300.0,
+            x1: 560.0,
+            y1: 400.0,
+        },
+        [vec!["Итог", "1 200,00"], vec!["НДС", "240,00"]],
+    )];
+    let segments = vec![column_seg("Итог НДС", 40.0, 60.0, 380.0)];
+    assert!(
+        filter_segments_by_table_bboxes(segments, &coverage).is_empty(),
+        "a seven-character segment of whole cell words is carried whatever its byte length"
+    );
+}
+
 fn column_seg(text: &str, x: f32, width: f32, baseline_y: f32) -> SegmentData {
     SegmentData {
         text: text.to_string(),

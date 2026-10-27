@@ -4656,18 +4656,26 @@ struct TableCoverage {
     cell_text: String,
     /// One entry per table row: that row's cells' glyphs, concatenated.
     rows: Vec<String>,
+    /// One entry per table row: every whitespace-separated word of that row's cells, normalized.
+    /// Lets a long segment still match a row that holds its words in another order or among
+    /// extra words, where the run test fails.
+    row_words: Vec<ahash::AHashSet<String>>,
     /// Every whitespace-separated word of every cell, normalized.
     words: ahash::AHashSet<String>,
 }
 
-/// Shortest normalized run that may match across cell boundaries within one row. A shorter
-/// run (an item number, a price) is only ever carried by a whole cell word: its digits also
-/// occur, by accident, across the seam of two neighbouring numeric cells (#2171). ~keep
+/// Normalized length, in characters, at which [`TableCoverage::carries`] stops matching a segment against the
+/// whole table and matches it against one row. A shorter run (an item number, a price) is only
+/// ever carried by whole cell words: its digits also occur, by accident, across the seam of two
+/// neighbouring numeric cells (#2171). A longer one is only ever carried by one row: every word of
+/// a sentence can occur somewhere in a table that does not hold the sentence (IRS Form 8829,
+/// lines 43 and 44). ~keep
 const MIN_CROSS_CELL_RUN_GLYPHS: usize = 8;
 
 impl TableCoverage {
     fn from_rows<'a>(bbox: crate::types::BoundingBox, rows: impl IntoIterator<Item = Vec<&'a str>>) -> Self {
         let mut row_texts = Vec::new();
+        let mut row_words = Vec::new();
         let mut words = ahash::AHashSet::new();
         for row in rows {
             row_texts.push(
@@ -4675,35 +4683,47 @@ impl TableCoverage {
                     .map(|cell| normalize_for_table_coverage(cell))
                     .collect::<String>(),
             );
-            for cell in row {
-                words.extend(
-                    cell.split_whitespace()
-                        .map(normalize_for_table_coverage)
-                        .filter(|word| !word.is_empty()),
-                );
-            }
+            let this_row_words: ahash::AHashSet<String> = row
+                .iter()
+                .flat_map(|cell| cell.split_whitespace())
+                .map(normalize_for_table_coverage)
+                .filter(|word| !word.is_empty())
+                .collect();
+            words.extend(this_row_words.iter().cloned());
+            row_words.push(this_row_words);
         }
         Self {
             bbox,
             cell_text: row_texts.concat(),
             rows: row_texts,
+            row_words,
             words,
         }
     }
 
-    /// Whether the grid represents `text`: every word is a whole cell word, or a long run
-    /// sits inside one row's cells. A run is not matched against the whole table's
-    /// concatenated glyphs, which lets digits straddling unrelated cells stand in for it.
+    /// Whether the grid represents `text`. A run shorter than [`MIN_CROSS_CELL_RUN_GLYPHS`] is
+    /// carried when every word is a whole cell word anywhere in the table; a longer one when one
+    /// row holds it, either as a run inside that row's cells or as every word a whole cell word of
+    /// that row. A run is not matched against the whole table's concatenated glyphs, which lets
+    /// digits straddling unrelated cells stand in for it.
     fn carries(&self, text: &str) -> bool {
         let normalized = normalize_for_table_coverage(text);
         if normalized.is_empty() {
             return true;
         }
-        text.split_whitespace()
+        let text_words: Vec<String> = text
+            .split_whitespace()
             .map(normalize_for_table_coverage)
             .filter(|word| !word.is_empty())
-            .all(|word| self.words.contains(&word))
-            || (normalized.len() >= MIN_CROSS_CELL_RUN_GLYPHS && self.rows.iter().any(|row| row.contains(&normalized)))
+            .collect();
+        if normalized.chars().count() < MIN_CROSS_CELL_RUN_GLYPHS {
+            return text_words.iter().all(|word| self.words.contains(word));
+        }
+        self.rows.iter().any(|row| row.contains(&normalized))
+            || self
+                .row_words
+                .iter()
+                .any(|row| text_words.iter().all(|word| row.contains(word)))
     }
 }
 
